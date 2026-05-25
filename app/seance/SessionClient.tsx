@@ -50,6 +50,7 @@ export default function SessionClient() {
         minHeight: '100dvh',
         background: 'var(--bg)',
         position: 'relative',
+        paddingTop: 'env(safe-area-inset-top, 0px)',
       }}
     >
       <StepSwitcher step={step}>

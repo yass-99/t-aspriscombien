@@ -10,7 +10,7 @@ export default function Home() {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '24px 20px',
+        padding: 'calc(env(safe-area-inset-top, 0px) + 24px) 20px 24px',
         maxWidth: 480,
         margin: '0 auto',
         background:

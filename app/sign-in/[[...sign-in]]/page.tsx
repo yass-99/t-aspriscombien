@@ -8,7 +8,7 @@ export default function Page() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '24px 16px',
+        padding: 'calc(env(safe-area-inset-top, 0px) + 24px) 16px 24px',
         background: 'var(--bg)',
       }}
     >

@@ -20,7 +20,7 @@ export default function SettingsClient() {
       style={{
         minHeight: '100dvh',
         background: 'var(--bg)',
-        padding: '24px 20px 48px',
+        padding: 'calc(env(safe-area-inset-top, 0px) + 24px) 20px 48px',
         maxWidth: 480,
         margin: '0 auto',
       }}
