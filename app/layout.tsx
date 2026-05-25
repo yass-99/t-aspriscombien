@@ -2,7 +2,9 @@ import type { Metadata, Viewport } from 'next'
 import { ClerkProvider } from '@clerk/nextjs'
 import { dark } from '@clerk/themes'
 import { Inter, Space_Grotesk, JetBrains_Mono } from 'next/font/google'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 import { Analytics } from '@vercel/analytics/next'
+
 import { ServiceWorkerRegister } from './_components/ServiceWorkerRegister'
 import { ToastProvider } from './_components/Toast'
 import { FloatingUserButton } from './_components/FloatingUserButton'
@@ -81,7 +83,9 @@ export default function RootLayout({
           <FloatingUserButton />
           {children}
         </ClerkProvider>
-        </ToastProvider>
+        </ToastProvider
+         
+        <SpeedInsights />
         <Analytics />
       </body>
     </html>
