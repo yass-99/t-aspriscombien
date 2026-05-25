@@ -9,7 +9,6 @@ import { ExerciseSelectScreen } from './_screens/ExerciseSelectScreen'
 import { LoggingScreen } from './_screens/LoggingScreen'
 import { SummaryScreen } from './_screens/SummaryScreen'
 import { StatsScreen } from './_screens/StatsScreen'
-import SpotifyWebPlayer from './SpotifyWebPlayer'
 
 const DEFAULT_REST = 90
 
@@ -67,11 +66,6 @@ export default function SessionClient() {
         )}
         {step === 'stats' && <StatsScreen session={session} nav={nav} />}
       </StepSwitcher>
-
-      {step === 'logging' &&
-        (session.timer.status === 'running' || session.timer.status === 'finished') && (
-          <SpotifyWebPlayer />
-        )}
     </div>
   )
 }
