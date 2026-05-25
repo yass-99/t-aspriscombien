@@ -28,6 +28,9 @@ export type TimerState = {
   overtimeSec: number
   justFinished: boolean
   minimised?: boolean
+  // Wall-clock timestamp (ms since epoch) when the rest period ends.
+  // The tick recomputes remainingSec from this — resilient to backgrounded tabs.
+  targetEndAt?: number | null
 }
 
 export type SessionState = {

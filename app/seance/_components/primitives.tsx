@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, CSSProperties, ReactNode } from 'react'
+import { useState, useRef, CSSProperties, ReactNode } from 'react'
 import { Minus, Plus, Check } from './icons'
 
 // ─── Button ────────────────────────────────────────────────────────
@@ -164,12 +164,62 @@ export function NumericInput({
   icon?: ReactNode
 }) {
   const [focus, setFocus] = useState(false)
-  const fmt = (n: number) => (decimals ? Number(n).toFixed(decimals) : String(n))
+  const [draft, setDraft] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  const fmt = (n: number) => {
+    if (!decimals) return String(n)
+    // Drop trailing zeros so "80" stays "80" not "80.0" — keeps display clean.
+    const fixed = Number(n).toFixed(decimals)
+    return fixed.replace(/\.?0+$/, '')
+  }
   const clamp = (n: number) => Math.max(min, Math.min(max, Number(n.toFixed(decimals))))
-  const adjust = (delta: number) => onChange(clamp(value + delta))
+  const adjust = (delta: number) => {
+    setDraft(null)
+    onChange(clamp(value + delta))
+  }
+
+  const display = draft ?? fmt(value)
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value
+    // Only accept partial decimal numbers (with comma or dot).
+    if (!/^-?[0-9]*[.,]?[0-9]*$/.test(raw)) return
+    setDraft(raw)
+    const normalized = raw.replace(',', '.')
+    if (normalized === '' || normalized === '-' || normalized === '.' || normalized === '-.') return
+    const n = parseFloat(normalized)
+    if (!isNaN(n)) {
+      // Don't clamp while typing — only commit on blur.
+      const bounded = Math.min(max, Math.max(min, n))
+      onChange(bounded)
+    }
+  }
+
+  const handleBlur = () => {
+    setFocus(false)
+    if (draft === null) return
+    const normalized = draft.trim().replace(',', '.')
+    if (normalized === '' || normalized === '-' || normalized === '.' || normalized === '-.') {
+      onChange(clamp(0))
+    } else {
+      const n = parseFloat(normalized)
+      if (!isNaN(n)) onChange(clamp(n))
+    }
+    setDraft(null)
+  }
+
+  const handleFocus = () => {
+    setFocus(true)
+    setDraft(fmt(value))
+    // Select-all so first keystroke replaces the value naturally.
+    requestAnimationFrame(() => {
+      inputRef.current?.select()
+    })
+  }
 
   const sizes = {
-    md: { h: 56, btn: 38, num: 24, suf: 13, gap: 4, lbl: 12 },
+    md: { h: 56, btn: 32, num: 24, suf: 13, gap: 4, lbl: 12 },
     hero: { h: 84, btn: 56, num: 44, suf: 16, gap: 6, lbl: 12 },
   }
   const sz = sizes[size]
@@ -230,25 +280,26 @@ export function NumericInput({
         <div
           style={{
             flex: 1,
+            minWidth: 0,
             display: 'flex',
             alignItems: 'baseline',
             justifyContent: 'center',
             gap: sz.gap,
+            padding: '0 4px',
           }}
         >
           <input
-            value={fmt(value)}
-            onChange={(e) => {
-              const v = e.target.value.replace(',', '.')
-              if (v === '' || v === '-') return onChange(0)
-              const n = parseFloat(v)
-              if (!isNaN(n)) onChange(clamp(n))
-            }}
-            onFocus={() => setFocus(true)}
-            onBlur={() => setFocus(false)}
+            ref={inputRef}
+            value={display}
+            onChange={handleInputChange}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
             inputMode="decimal"
+            enterKeyHint="done"
             style={{
-              width: '70%',
+              flex: 1,
+              minWidth: 0,
+              width: '100%',
               textAlign: 'center',
               border: 'none',
               outline: 'none',

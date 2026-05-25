@@ -5,7 +5,7 @@ import type { Serie, SessionState, WorkoutStep } from '../_lib/types'
 import { WORKOUT_TYPES } from '../_lib/constants'
 import { formatSessionAsText } from '../_lib/helpers'
 import { Button, Card, IconButton, TopBar } from '../_components/primitives'
-import { Check, ChevronLeft, Copy, Minus, Plus, X } from '../_components/icons'
+import { Check, ChevronDown, ChevronLeft, Copy, Minus, Plus, X } from '../_components/icons'
 
 type Props = {
   session: SessionState
@@ -67,6 +67,15 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState<string>('')
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
+  const [expandedExos, setExpandedExos] = useState<Set<string>>(new Set())
+
+  const toggleExpanded = (key: string) =>
+    setExpandedExos((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
 
   const handleCopy = async () => {
     const text = formatSessionAsText({ ...session, exos: nonEmptyExos })
@@ -119,6 +128,11 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
   }
 
   const handleNewSession = () => {
+    resetSession()
+    nav('config')
+  }
+
+  const handleBackToMenu = () => {
     resetSession()
     nav('idle')
   }
@@ -244,15 +258,33 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
           {session.exos?.map((exo, exoIdx) => {
             const isEmpty = exo.series.length === 0
+            const key = exo.tempId || `exo-${exoIdx}`
+            const expanded = expandedExos.has(key)
+            const exoVolume = exo.series.reduce((a, s) => a + s.poids * s.reps, 0)
+            const topSet = exo.series.reduce<Serie | null>(
+              (best, s) => (!best || s.poids > best.poids ? s : best),
+              null,
+            )
             return (
-              <Card key={exo.tempId || exoIdx} style={{ padding: 0, overflow: 'hidden' }}>
-                <div
+              <Card key={key} style={{ padding: 0, overflow: 'hidden' }}>
+                <button
+                  type="button"
+                  onClick={() => !isEmpty && toggleExpanded(key)}
+                  aria-expanded={expanded}
+                  aria-controls={`exo-body-${key}`}
+                  disabled={isEmpty}
                   style={{
+                    width: '100%',
+                    appearance: 'none',
+                    border: 'none',
+                    cursor: isEmpty ? 'default' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: 10,
                     padding: '12px 14px',
                     background: 'var(--line-2)',
+                    color: 'inherit',
+                    textAlign: 'left',
                   }}
                 >
                   <div
@@ -269,47 +301,86 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
                       fontFamily: 'var(--mono)',
                       fontSize: 11,
                       fontWeight: 600,
+                      flexShrink: 0,
                     }}
                   >
                     {exoIdx + 1}
                   </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: 'var(--ink)',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {exo.nom}
+                    </div>
+                    {!isEmpty && !expanded && (
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--muted)',
+                          fontFamily: 'var(--mono)',
+                          marginTop: 2,
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        {exo.series.length} série{exo.series.length > 1 ? 's' : ''}
+                        {topSet && (
+                          <>
+                            <span style={{ color: 'var(--subtle)' }}> · top </span>
+                            {topSet.poids}kg×{topSet.reps}
+                            <span style={{ color: 'var(--subtle)' }}> · vol </span>
+                            {exoVolume.toLocaleString('fr-FR')}kg
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <span
-                    style={{
-                      flex: 1,
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: 'var(--ink)',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deleteExo(exoIdx)
                     }}
-                  >
-                    {exo.nom}
-                  </span>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-                    {exo.series.length} série{exo.series.length > 1 ? 's' : ''}
-                  </span>
-                  <button
-                    onClick={() => deleteExo(exoIdx)}
+                    role="button"
+                    tabIndex={0}
                     aria-label="supprimer l'exercice"
                     title="supprimer l'exercice"
                     style={{
                       width: 26,
                       height: 26,
                       borderRadius: 7,
-                      border: 'none',
                       cursor: 'pointer',
                       background: 'transparent',
                       color: 'var(--subtle)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
+                      flexShrink: 0,
                     }}
                   >
                     <X size={13} />
-                  </button>
-                </div>
-                {isEmpty && (
+                  </span>
+                  {!isEmpty && (
+                    <span
+                      aria-hidden
+                      style={{
+                        display: 'inline-flex',
+                        color: 'var(--muted)',
+                        transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 200ms ease',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <ChevronDown size={16} />
+                    </span>
+                  )}
+                </button>
+                {isEmpty ? (
                   <div
                     style={{
                       padding: '14px 16px',
@@ -320,39 +391,42 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
                   >
                     aucune série — ne sera pas enregistré
                   </div>
-                )}
-                {exo.series.map((s, si) => (
-                  <EditableSerieRow
-                    key={s.tempId || si}
-                    index={si}
-                    serie={s}
-                    onPatch={(patch) => updateSerie(exoIdx, si, patch)}
-                    onDelete={() => deleteSerie(exoIdx, si)}
-                  />
-                ))}
-                <button
-                  onClick={() => addSerieToExo(exoIdx)}
-                  style={{
-                    width: '100%',
-                    appearance: 'none',
-                    border: 'none',
-                    borderTop: '1px solid var(--line-2)',
-                    background: 'transparent',
-                    color: 'var(--accent)',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    fontFamily: 'var(--font)',
-                    padding: '10px 14px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <Plus size={14} />
-                  Ajouter une série
-                </button>
+                ) : expanded ? (
+                  <div id={`exo-body-${key}`} style={{ animation: 'fadeUp 200ms ease both' }}>
+                    {exo.series.map((s, si) => (
+                      <EditableSerieRow
+                        key={s.tempId || si}
+                        index={si}
+                        serie={s}
+                        onPatch={(patch) => updateSerie(exoIdx, si, patch)}
+                        onDelete={() => deleteSerie(exoIdx, si)}
+                      />
+                    ))}
+                    <button
+                      onClick={() => addSerieToExo(exoIdx)}
+                      style={{
+                        width: '100%',
+                        appearance: 'none',
+                        border: 'none',
+                        borderTop: '1px solid var(--line-2)',
+                        background: 'transparent',
+                        color: 'var(--accent)',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        fontFamily: 'var(--font)',
+                        padding: '10px 14px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <Plus size={14} />
+                      Ajouter une série
+                    </button>
+                  </div>
+                ) : null}
               </Card>
             )
           })}
@@ -384,7 +458,7 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
         </div>
 
         {saveStatus === 'saved' ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div
               style={{
                 padding: '14px 16px',
@@ -402,26 +476,81 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
               <Check size={16} stroke={2.4} />
               <span>Séance enregistrée</span>
             </div>
-            <Button
-              variant="secondary"
-              onClick={handleCopy}
-              icon={
-                copyStatus === 'copied' ? (
-                  <Check size={16} color="var(--accent)" />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={handleCopy}
+                aria-label={
+                  copyStatus === 'copied'
+                    ? 'Copié'
+                    : copyStatus === 'error'
+                      ? 'Impossible de copier'
+                      : 'Copier la séance pour LLM (markdown)'
+                }
+                title={
+                  copyStatus === 'copied'
+                    ? 'Copié dans le presse-papier'
+                    : copyStatus === 'error'
+                      ? 'Impossible de copier'
+                      : 'Copier pour LLM (markdown)'
+                }
+                style={{
+                  width: 52,
+                  height: 52,
+                  flexShrink: 0,
+                  appearance: 'none',
+                  border: 'none',
+                  borderRadius: 12,
+                  cursor: 'pointer',
+                  background:
+                    copyStatus === 'copied' ? 'var(--accent-soft)' : 'var(--surface)',
+                  color:
+                    copyStatus === 'copied' ? 'var(--accent)' : 'var(--ink-2)',
+                  boxShadow:
+                    copyStatus === 'copied'
+                      ? '0 0 0 1px var(--accent-line) inset'
+                      : '0 0 0 1px var(--line) inset',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 160ms ease',
+                }}
+              >
+                {copyStatus === 'copied' ? (
+                  <Check size={18} stroke={2.4} />
                 ) : (
-                  <Copy size={16} />
-                )
-              }
+                  <Copy size={18} />
+                )}
+              </button>
+              <Button
+                onClick={handleNewSession}
+                icon={<Plus size={16} />}
+                style={{ flex: 1 }}
+              >
+                Nouvelle séance
+              </Button>
+            </div>
+            <button
+              type="button"
+              onClick={handleBackToMenu}
+              style={{
+                appearance: 'none',
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                color: 'var(--muted)',
+                fontSize: 13,
+                fontWeight: 500,
+                fontFamily: 'var(--font)',
+                padding: '8px 12px',
+                alignSelf: 'center',
+                textDecoration: 'underline',
+                textUnderlineOffset: 3,
+                textDecorationColor: 'var(--line)',
+              }}
             >
-              {copyStatus === 'copied'
-                ? 'Copié dans le presse-papier'
-                : copyStatus === 'error'
-                  ? 'Impossible de copier'
-                  : 'Copier pour LLM (markdown)'}
-            </Button>
-            <Button onClick={handleNewSession} icon={<Check size={16} />}>
-              Nouvelle séance
-            </Button>
+              Retour au menu principal
+            </button>
           </div>
         ) : saveStatus === 'error' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

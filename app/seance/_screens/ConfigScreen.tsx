@@ -18,7 +18,17 @@ export function ConfigScreen({ session, setSession, nav }: Props) {
   const [rest, setRest] = useState(session.restTargetSec || 90)
   const canContinue = !!type && rest > 0
   const confirm = () => {
-    setSession((s) => ({ ...s, type, restTargetSec: rest }))
+    // Starting (or restarting) a session from the config step: always wipe any
+    // leftover exos from a previous run the user may have abandoned via the X.
+    setSession((s) => ({
+      ...s,
+      type,
+      restTargetSec: rest,
+      exos: [],
+      currentExoIndex: 0,
+      currentSerieIndex: 0,
+      timer: { remainingSec: 0, status: 'idle', overtimeSec: 0, justFinished: false, targetEndAt: null },
+    }))
     nav('exercise_select')
   }
   return (

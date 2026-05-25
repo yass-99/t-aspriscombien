@@ -81,6 +81,7 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
           status: 'running',
           overtimeSec: 0,
           justFinished: false,
+          targetEndAt: Date.now() + s.restTargetSec * 1000,
         },
       }
     })
@@ -89,13 +90,25 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
   const nouvelleSerie = () =>
     setSession((s) => ({
       ...s,
-      timer: { remainingSec: 0, status: 'idle', overtimeSec: 0, justFinished: false },
+      timer: {
+        remainingSec: 0,
+        status: 'idle',
+        overtimeSec: 0,
+        justFinished: false,
+        targetEndAt: null,
+      },
     }))
 
   const exerciceSuivant = () => {
     setSession((s) => ({
       ...s,
-      timer: { remainingSec: 0, status: 'idle', overtimeSec: 0, justFinished: false },
+      timer: {
+        remainingSec: 0,
+        status: 'idle',
+        overtimeSec: 0,
+        justFinished: false,
+        targetEndAt: null,
+      },
     }))
     nav('exercise_select')
   }
@@ -103,7 +116,13 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
   const finish = () => {
     setSession((s) => ({
       ...s,
-      timer: { remainingSec: 0, status: 'idle', overtimeSec: 0, justFinished: false },
+      timer: {
+        remainingSec: 0,
+        status: 'idle',
+        overtimeSec: 0,
+        justFinished: false,
+        targetEndAt: null,
+      },
     }))
     nav('summary')
   }

@@ -1,13 +1,5 @@
 @import "tailwindcss";
 
-@theme {
-  --font-sans: var(--font-inter), -apple-system, system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains-mono), ui-monospace, "SF Mono", Menlo, monospace;
-  --font-display: var(--font-space-grotesk), -apple-system, sans-serif;
-  --default-font-family: var(--font-inter), -apple-system, system-ui, sans-serif;
-  --default-mono-font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
-}
-
 :root {
   --bg: #09090B;
   --surface: #18181B;
@@ -27,7 +19,8 @@
   --ok: #4ADE80;
   --danger: #F87171;
   --radius: 14px;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.40);
+  --shadow-sm: 0 1px 2px rgba(
+    0,0,0,0.40);
   --shadow-md: 0 4px 14px rgba(0,0,0,0.28);
   --shadow-pop: 0 10px 30px -10px rgba(190,242,100,0.18), 0 8px 24px rgba(0,0,0,0.40);
   --font: var(--font-inter), -apple-system, system-ui, sans-serif;
@@ -48,10 +41,8 @@ html, body {
 }
 
 * { box-sizing: border-box; }
-button, input, select, textarea {
-  font-family: inherit;
-  color: inherit;
-}
+button { font-family: inherit; color: inherit; }
+input { font-family: inherit; color: inherit; }
 input::placeholder { color: var(--subtle); }
 
 ::selection {

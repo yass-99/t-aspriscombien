@@ -19,17 +19,17 @@ function getAudioContext(): AudioContext | null {
 
 /**
  * Unlock audio on the first user gesture. iOS Safari requires a synchronous
- * touch/click before any audio can play. Call once when the session starts.
+ * touch/click before any audio can play. Safe to call on every gesture: if the
+ * context has been suspended in the background, this also resumes it.
  */
 export function unlockAudio() {
-  if (unlocked) return
   const ctx = getAudioContext()
   if (!ctx) return
-  unlocked = true
   if (ctx.state === 'suspended') {
     ctx.resume().catch(() => {})
   }
-  // Play a tiny silent ping to fully unlock the WebAudio graph.
+  if (unlocked) return
+  unlocked = true
   try {
     const o = ctx.createOscillator()
     const g = ctx.createGain()
@@ -56,30 +56,48 @@ function beep(ctx: AudioContext, freq: number, durationSec: number, startOffset:
   osc.stop(t0 + durationSec + 0.02)
 }
 
+export type AlertOptions = {
+  sound: boolean
+  haptic: boolean
+}
+
 /**
  * Fire when the rest timer reaches zero: vibration + 3-tone chime.
- * Both are best-effort — silently skipped if unsupported or blocked.
+ * Both are best-effort — silently skipped if unsupported, disabled or blocked.
  */
-export function playRestEndAlert() {
+export function playRestEndAlert(opts: AlertOptions = { sound: true, haptic: true }) {
   if (typeof window === 'undefined') return
 
-  // Vibration (Android Chrome). Safari iOS ignores silently.
-  try {
-    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-      navigator.vibrate([220, 90, 220, 90, 420])
+  if (opts.haptic) {
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate([220, 90, 220, 90, 420])
+      }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
 
-  // Audio chime — only works if audio was unlocked by a prior gesture.
+  if (!opts.sound) return
+
   const ctx = getAudioContext()
-  if (!ctx || ctx.state === 'suspended') return
-  try {
-    beep(ctx, 880, 0.16, 0)
-    beep(ctx, 1100, 0.16, 0.18)
-    beep(ctx, 1320, 0.28, 0.36, 0.22)
-  } catch {
-    // ignore
+  if (!ctx) return
+
+  const play = () => {
+    try {
+      beep(ctx, 880, 0.16, 0)
+      beep(ctx, 1100, 0.16, 0.18)
+      beep(ctx, 1320, 0.28, 0.36, 0.22)
+    } catch {
+      // ignore
+    }
+  }
+
+  // iOS Safari may suspend the context between alerts (background, screen lock).
+  // Resume on every play so the second, third… alerts still ring.
+  if (ctx.state === 'suspended') {
+    ctx.resume().then(play).catch(() => {})
+  } else {
+    play()
   }
 }
