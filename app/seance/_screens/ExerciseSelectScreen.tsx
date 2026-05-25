@@ -4,7 +4,7 @@ import { Dispatch, SetStateAction, useEffect, useRef, useState } from 'react'
 import type { SessionState, WorkoutStep } from '../_lib/types'
 import { SUGGESTIONS, WORKOUT_TYPES } from '../_lib/constants'
 import { formatMMSS, newId } from '../_lib/helpers'
-import { Button, IconButton, Pill, Steps, TopBar } from '../_components/primitives'
+import { Button, FinishPill, IconButton, Pill, Steps, TopBar } from '../_components/primitives'
 import { Check, ChevronLeft, ChevronRight, Dumbbell, Timer } from '../_components/icons'
 
 type Props = {
@@ -69,6 +69,7 @@ export function ExerciseSelectScreen({ session, setSession, nav }: Props) {
         }
         title={isFirst ? 'Nouvelle séance' : 'Exercice suivant'}
         subtitle={isFirst ? 'Étape 2 / 3' : `Exo ${nextIndex + 1}`}
+        trailing={!isFirst ? <FinishPill onClick={() => nav('summary')} /> : null}
       />
       {isFirst && (
         <div style={{ padding: '0 20px 14px' }}>
