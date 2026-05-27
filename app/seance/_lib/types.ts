@@ -8,18 +8,32 @@ export type WorkoutStep =
   | 'history'
   | 'session_detail'
   | 'manual_entry'
+  | 'athletics'
+
+export type Run = {
+  id: string
+  date: string
+  distance_m: number
+  duration_ms: number
+  created_at: string
+}
 
 export type NavContext = {
   seanceId?: string | null
+  // Vue d'entrée pour AthleticsScreen :
+  //   - 'chrono' (depuis Idle Sprint) → ouvre directement le timer
+  //   - 'hub' (depuis Stats « Voir tout ») → ouvre l'historique
+  athleticsView?: 'hub' | 'chrono'
 }
 
 export type NavFn = (step: WorkoutStep, ctx?: NavContext) => void
 
 export type Serie = {
   tempId: string
-  reps: number
+  // null = série « non comptée » — ignorée dans les calculs et exclue à l'enregistrement.
+  reps: number | null
   poids: number
-  rir: number
+  rir: number | null
   degressive: boolean
 }
 

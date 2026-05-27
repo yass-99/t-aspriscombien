@@ -12,6 +12,7 @@ import { StatsScreen } from './_screens/StatsScreen'
 import { HistoryScreen } from './_screens/HistoryScreen'
 import { SessionDetailScreen } from './_screens/SessionDetailScreen'
 import { ManualEntryScreen } from './_screens/ManualEntryScreen'
+import { AthleticsScreen } from './_screens/AthleticsScreen'
 
 const DEFAULT_REST = 90
 
@@ -35,10 +36,14 @@ export default function SessionClient() {
   const [step, setStep] = useState<WorkoutStep>('idle')
   const [session, setSession] = useState<SessionState>(initialSession)
   const [selectedSeanceId, setSelectedSeanceId] = useState<string | null>(null)
+  const [athleticsInitialView, setAthleticsInitialView] = useState<'hub' | 'chrono'>(
+    'chrono',
+  )
 
   const resetSession = () => setSession(initialSession())
   const nav = (s: WorkoutStep, ctx?: NavContext) => {
     if (ctx && 'seanceId' in ctx) setSelectedSeanceId(ctx.seanceId ?? null)
+    if (ctx?.athleticsView) setAthleticsInitialView(ctx.athleticsView)
     setStep(s)
   }
 
@@ -79,6 +84,9 @@ export default function SessionClient() {
         )}
         {step === 'manual_entry' && (
           <ManualEntryScreen seanceId={selectedSeanceId} nav={nav} />
+        )}
+        {step === 'athletics' && (
+          <AthleticsScreen nav={nav} initialView={athleticsInitialView} />
         )}
       </StepSwitcher>
     </div>

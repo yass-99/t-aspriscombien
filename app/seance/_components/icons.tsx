@@ -123,6 +123,18 @@ export const X = ({ size = 16, color = 'currentColor', stroke = 2 }: IconProps) 
   </svg>
 )
 
+export const Trash = ({ size = 16, color = 'currentColor', stroke = 1.8 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+    <path
+      d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13M10 11v7M14 11v7"
+      stroke={color}
+      strokeWidth={stroke}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+)
+
 export const Logo = ({ size = 22, color = 'var(--accent)' }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
     <circle cx="12" cy="12" r="10" fill={color} />

@@ -14,12 +14,11 @@ export default clerkMiddleware(async (auth, req) => {
 });
 
 export const config = {
+  // Matcher large recommandé par Clerk : intercepte toutes les routes sauf les
+  // assets statiques. Sans ça, `<Show>` / `auth()` sur la racine `/` lèvent
+  // « auth() was called but Clerk can't detect usage of clerkMiddleware() ».
   matcher: [
-    // Skip Next.js internals and all static files, unless found in search params
     '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
-    // Always run for Clerk's auto-proxy path
-    '/__clerk/(.*)',
-    // Always run for API routes
     '/(api|trpc)(.*)',
   ],
 };

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { Show } from '@clerk/nextjs'
+import { BodyHeatmap } from './seance/_components/BodyHeatmap'
 
 export default function Home() {
   return (
@@ -77,6 +78,7 @@ export default function Home() {
         Une séance guidée, série par série. Pas de tableaux de bord — juste ce que tu portes, et
         combien de fois.
       </p>
+
       <Show when="signed-in">
         <Link
           href="/seance"

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, CSSProperties, ReactNode } from 'react'
-import { Minus, Plus, Check } from './icons'
+import { Minus, Plus } from './icons'
 
 // ─── Button ────────────────────────────────────────────────────────
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
@@ -150,9 +150,10 @@ export function NumericInput({
   size = 'md',
   hint,
   icon,
+  allowNull = false,
 }: {
-  value: number
-  onChange: (v: number) => void
+  value: number | null
+  onChange: (v: number | null) => void
   label?: ReactNode
   suffix?: ReactNode
   step?: number
@@ -162,35 +163,46 @@ export function NumericInput({
   size?: 'md' | 'hero'
   hint?: ReactNode
   icon?: ReactNode
+  // When true, decrementing from `min` switches to a « non compté » state (null → X).
+  allowNull?: boolean
 }) {
   const [focus, setFocus] = useState(false)
   const [draft, setDraft] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
+  const isNull = value === null
   const fmt = (n: number) => {
     if (!decimals) return String(n)
-    // Drop trailing zeros so "80" stays "80" not "80.0" — keeps display clean.
     const fixed = Number(n).toFixed(decimals)
     return fixed.replace(/\.?0+$/, '')
   }
   const clamp = (n: number) => Math.max(min, Math.min(max, Number(n.toFixed(decimals))))
   const adjust = (delta: number) => {
     setDraft(null)
-    onChange(clamp(value + delta))
+    if (isNull) {
+      // Coming back from « non compté » → land on min, regardless of delta sign.
+      onChange(delta > 0 ? min : null)
+      return
+    }
+    const next = (value ?? 0) + delta
+    if (allowNull && delta < 0 && (value ?? 0) <= min) {
+      onChange(null)
+      return
+    }
+    onChange(clamp(next))
   }
 
-  const display = draft ?? fmt(value)
+  // When null & not focused, show « JSP » directly in the input — bolder than a placeholder.
+  const display = draft ?? (isNull ? (focus ? '' : 'JSP') : fmt(value as number))
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value
-    // Only accept partial decimal numbers (with comma or dot).
     if (!/^-?[0-9]*[.,]?[0-9]*$/.test(raw)) return
     setDraft(raw)
     const normalized = raw.replace(',', '.')
     if (normalized === '' || normalized === '-' || normalized === '.' || normalized === '-.') return
     const n = parseFloat(normalized)
     if (!isNaN(n)) {
-      // Don't clamp while typing — only commit on blur.
       const bounded = Math.min(max, Math.max(min, n))
       onChange(bounded)
     }
@@ -201,7 +213,8 @@ export function NumericInput({
     if (draft === null) return
     const normalized = draft.trim().replace(',', '.')
     if (normalized === '' || normalized === '-' || normalized === '.' || normalized === '-.') {
-      onChange(clamp(0))
+      if (allowNull) onChange(null)
+      else onChange(clamp(0))
     } else {
       const n = parseFloat(normalized)
       if (!isNaN(n)) onChange(clamp(n))
@@ -211,8 +224,7 @@ export function NumericInput({
 
   const handleFocus = () => {
     setFocus(true)
-    setDraft(fmt(value))
-    // Select-all so first keystroke replaces the value naturally.
+    setDraft(isNull ? '' : fmt(value as number))
     requestAnimationFrame(() => {
       inputRef.current?.select()
     })
@@ -296,6 +308,7 @@ export function NumericInput({
             onBlur={handleBlur}
             inputMode="decimal"
             enterKeyHint="done"
+            aria-label={isNull ? 'non compté' : undefined}
             style={{
               flex: 1,
               minWidth: 0,
@@ -307,13 +320,13 @@ export function NumericInput({
               fontFamily: 'var(--mono)',
               fontSize: sz.num,
               fontWeight: 600,
-              color: 'var(--ink)',
+              color: isNull && !focus ? 'var(--subtle)' : 'var(--ink)',
               letterSpacing: -0.5,
               padding: 0,
               fontVariantNumeric: 'tabular-nums',
             }}
           />
-          {suffix && (
+          {suffix && !isNull && (
             <span
               style={{
                 fontFamily: 'var(--mono)',
@@ -624,11 +637,23 @@ export function Steps({ count, current }: { count: number; current: number }) {
 export function FinishPill({
   onClick,
   label = 'Terminer',
+  tone = 'danger',
 }: {
   onClick?: () => void
   label?: string
+  tone?: 'accent' | 'danger'
 }) {
   const [hover, setHover] = useState(false)
+  const isDanger = tone === 'danger'
+  const color = isDanger ? 'var(--danger)' : 'var(--accent)'
+  const hoverBg = isDanger
+    ? 'color-mix(in oklch, var(--danger) 16%, var(--surface))'
+    : 'var(--accent-soft)'
+  const ring = hover
+    ? color
+    : isDanger
+      ? 'color-mix(in oklch, var(--danger) 38%, var(--line))'
+      : 'var(--accent-line)'
   return (
     <button
       onClick={onClick}
@@ -639,9 +664,9 @@ export function FinishPill({
         padding: '0 12px 0 14px',
         borderRadius: 999,
         border: 'none',
-        background: hover ? 'var(--accent-soft)' : 'var(--surface)',
-        color: 'var(--accent)',
-        boxShadow: `0 0 0 1px ${hover ? 'var(--accent)' : 'var(--accent-line)'} inset`,
+        background: hover ? hoverBg : 'var(--surface)',
+        color,
+        boxShadow: `0 0 0 1px ${ring} inset`,
         fontFamily: 'var(--font)',
         fontSize: 12,
         fontWeight: 600,
@@ -650,10 +675,19 @@ export function FinishPill({
         gap: 6,
         cursor: 'pointer',
         transition: 'all 140ms',
+        flexShrink: 0,
       }}
     >
       <span>{label}</span>
-      <Check size={12} stroke={2.4} />
+      <StopSquare size={10} color={color} />
     </button>
+  )
+}
+
+function StopSquare({ size = 10, color = 'currentColor' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 10 10" aria-hidden>
+      <rect x="1" y="1" width="8" height="8" rx="1.5" fill={color} />
+    </svg>
   )
 }

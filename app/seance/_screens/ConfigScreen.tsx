@@ -158,7 +158,7 @@ export function ConfigScreen({ session, setSession, nav }: Props) {
             fontSize: 17,
             fontWeight: 600,
             letterSpacing: -0.3,
-            margin: '0 0 6px',
+            margin: '28px 0 6px',
           }}
         >
           Temps de repos cible
@@ -267,7 +267,11 @@ export function ConfigScreen({ session, setSession, nav }: Props) {
           background: 'linear-gradient(180deg, transparent, var(--bg) 30%)',
         }}
       >
-        <Button onClick={confirm} disabled={!canContinue} trailingIcon={<ChevronRight size={16} />}>
+        <Button
+          onClick={confirm}
+          disabled={!canContinue}
+          trailingIcon={<ChevronRight size={16} />}
+        >
           Continuer
         </Button>
       </div>

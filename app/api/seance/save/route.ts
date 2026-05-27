@@ -104,14 +104,18 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const seriesRows = exo.series.map((s) => ({
-      exo_id: exoRow.id,
-      reps: s.reps,
-      poids: s.poids,
-      recup: sessionState.restTargetSec,
-      rir: s.rir,
-      degressive: s.degressive,
-    }))
+    // Les séries non comptées (reps null) sont filtrées en amont (cf. SummaryScreen).
+    const seriesRows = exo.series
+      .filter((s) => s.reps != null)
+      .map((s) => ({
+        exo_id: exoRow.id,
+        reps: s.reps,
+        poids: s.poids,
+        recup: sessionState.restTargetSec,
+        rir: s.rir ?? 0,
+        degressive: s.degressive,
+      }))
+    if (seriesRows.length === 0) continue
 
     const { error: seriesErr } = await supabase.from('series').insert(seriesRows)
     if (seriesErr) {

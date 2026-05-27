@@ -4,8 +4,10 @@ import type { NavFn, SessionState } from '../_lib/types'
 import { daysAgo, formatSeanceDate, greetingFor, percentChange } from '../_lib/helpers'
 import { WORKOUT_TYPES } from '../_lib/constants'
 import { useDashboard } from '../_lib/useDashboard'
+import { useRuns } from '../_lib/useRuns'
+import { formatChrono, formatRunDate } from '../_lib/runs'
 import { Button, Card, Pill } from '../_components/primitives'
-import { ArrowUpRight, ChevronRight, Dumbbell, Spark, TrendUp } from '../_components/icons'
+import { ArrowUpRight, ChevronRight, Dumbbell, Spark, Timer, TrendUp } from '../_components/icons'
 
 type Props = {
   session: SessionState
@@ -14,6 +16,8 @@ type Props = {
 
 export function IdleScreen({ nav }: Props) {
   const { data, loading } = useDashboard()
+  const { runs } = useRuns()
+  const lastRun = runs[0] ?? null
 
   const weekVolume = data?.week.volume ?? 0
   const weekSeances = data?.week.seances ?? 0
@@ -107,6 +111,63 @@ export function IdleScreen({ nav }: Props) {
         <Button size="lg" onClick={() => nav('config')} icon={<Dumbbell size={16} />}>
           Commencer une séance
         </Button>
+
+        {/* Raccourci Sprint — ouvre directement le ChronoView avec la dernière distance utilisée. */}
+        <button
+          onClick={() => nav('athletics', { athleticsView: 'chrono' })}
+          aria-label="Lancer un sprint"
+          style={{
+            marginTop: 10,
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            padding: '12px 14px',
+            border: 'none',
+            cursor: 'pointer',
+            textAlign: 'left',
+            background: 'var(--surface)',
+            borderRadius: 14,
+            boxShadow: '0 0 0 1px var(--line) inset',
+            color: 'var(--ink)',
+            transition: 'box-shadow 160ms, transform 120ms',
+          }}
+        >
+          <div
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 10,
+              background: 'var(--surface-2)',
+              color: 'var(--accent)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <Timer size={18} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>
+              Sprint
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                color: 'var(--muted)',
+                marginTop: 2,
+                fontFamily: 'var(--mono)',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {lastRun
+                ? `${lastRun.distance_m}m · dernier ${formatChrono(lastRun.duration_ms)} · ${formatRunDate(lastRun.date)}`
+                : 'Premier chrono'}
+            </div>
+          </div>
+          <ChevronRight size={14} color="var(--muted)" />
+        </button>
       </div>
 
       {/* Volume stat card */}

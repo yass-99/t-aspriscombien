@@ -18,9 +18,13 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
   const nonEmptyExos = session.exos?.filter((e) => e.series.length > 0) ?? []
   const totalSets = nonEmptyExos.reduce((a, e) => a + e.series.length, 0)
   const totalVolume = nonEmptyExos.reduce(
-    (a, e) => a + e.series.reduce((b, s) => b + s.poids * s.reps, 0),
+    (a, e) => a + e.series.reduce((b, s) => (s.reps == null ? b : b + s.poids * s.reps), 0),
     0,
   )
+  // Séries effectivement enregistrables (reps comptées).
+  const countedExos = nonEmptyExos
+    .map((e) => ({ ...e, series: e.series.filter((s) => s.reps != null) }))
+    .filter((e) => e.series.length > 0)
   const type = WORKOUT_TYPES.find((t) => t.id === session.type)
 
   const updateSerie = (exoIdx: number, serieIdx: number, patch: Partial<Serie>) => {
@@ -78,7 +82,7 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
     })
 
   const handleCopy = async () => {
-    const text = formatSessionAsText({ ...session, exos: nonEmptyExos })
+    const text = formatSessionAsText({ ...session, exos: countedExos })
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text)
@@ -104,9 +108,10 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
   const handleValidate = async () => {
     setSaveStatus('saving')
     setErrorMsg('')
+    // Strip non-comptées : la DB ne stocke que les séries effectivement comptées.
     const payload: SessionState = {
       ...session,
-      exos: nonEmptyExos,
+      exos: countedExos,
     }
     try {
       const res = await fetch('/api/seance/save', {
@@ -137,7 +142,7 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
     nav('idle')
   }
 
-  const canValidate = nonEmptyExos.length > 0
+  const canValidate = countedExos.length > 0
 
   return (
     <div
@@ -260,7 +265,10 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
             const isEmpty = exo.series.length === 0
             const key = exo.tempId || `exo-${exoIdx}`
             const expanded = expandedExos.has(key)
-            const exoVolume = exo.series.reduce((a, s) => a + s.poids * s.reps, 0)
+            const exoVolume = exo.series.reduce(
+              (a, s) => (s.reps == null ? a : a + s.poids * s.reps),
+              0,
+            )
             const topSet = exo.series.reduce<Serie | null>(
               (best, s) => (!best || s.poids > best.poids ? s : best),
               null,
@@ -333,7 +341,7 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
                         {topSet && (
                           <>
                             <span style={{ color: 'var(--subtle)' }}> · top </span>
-                            {topSet.poids}kg×{topSet.reps}
+                            {topSet.poids}kg×{topSet.reps ?? 'JSP'}
                             <span style={{ color: 'var(--subtle)' }}> · vol </span>
                             {exoVolume.toLocaleString('fr-FR')}kg
                           </>
@@ -651,7 +659,7 @@ function EditableSerieRow({
       </div>
       <StepperCell
         value={serie.poids}
-        onChange={(v) => onPatch({ poids: Math.max(0, v) })}
+        onChange={(v) => onPatch({ poids: Math.max(0, v ?? 0) })}
         step={2.5}
         decimals={1}
         suffix="kg"
@@ -660,18 +668,24 @@ function EditableSerieRow({
       <span style={{ fontFamily: 'var(--mono)', color: 'var(--subtle)', fontSize: 12 }}>×</span>
       <StepperCell
         value={serie.reps}
-        onChange={(v) => onPatch({ reps: Math.max(0, Math.round(v)) })}
+        onChange={(v) =>
+          onPatch({ reps: v == null ? null : Math.max(0, Math.round(v)) })
+        }
         step={1}
         decimals={0}
-        width="2.5ch"
+        width="3.2ch"
+        allowNull
       />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
         <span style={{ fontSize: 10, color: 'var(--subtle)', fontWeight: 500 }}>RIR</span>
         <SimpleNumCell
           value={serie.rir}
           decimals={0}
-          onChange={(v) => onPatch({ rir: Math.max(0, Math.round(v)) })}
-          width="2ch"
+          onChange={(v) =>
+            onPatch({ rir: v == null ? null : Math.max(0, Math.round(v)) })
+          }
+          width="2.6ch"
+          allowNull
         />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
@@ -724,16 +738,36 @@ function StepperCell({
   decimals = 0,
   suffix,
   width,
+  allowNull = false,
 }: {
-  value: number
-  onChange: (v: number) => void
+  value: number | null
+  onChange: (v: number | null) => void
   step: number
   decimals?: number
   suffix?: string
   width?: string
+  allowNull?: boolean
 }) {
   const round = (n: number) =>
     decimals ? Number(n.toFixed(decimals)) : Math.round(n)
+  const isNull = value === null
+
+  const handleDec = () => {
+    if (isNull) return
+    const next = (value as number) - step
+    if (allowNull && next < 0) {
+      onChange(null)
+      return
+    }
+    onChange(round(next))
+  }
+  const handleInc = () => {
+    if (isNull) {
+      onChange(0)
+      return
+    }
+    onChange(round((value as number) + step))
+  }
 
   return (
     <div
@@ -748,7 +782,7 @@ function StepperCell({
     >
       <button
         type="button"
-        onClick={() => onChange(round(value - step))}
+        onClick={handleDec}
         aria-label="diminuer"
         style={{
           width: 24,
@@ -771,10 +805,11 @@ function StepperCell({
         onChange={onChange}
         suffix={suffix}
         width={width}
+        allowNull={allowNull}
       />
       <button
         type="button"
-        onClick={() => onChange(round(value + step))}
+        onClick={handleInc}
         aria-label="augmenter"
         style={{
           width: 24,
@@ -801,16 +836,25 @@ function SimpleNumCell({
   decimals = 0,
   suffix,
   width,
+  allowNull = false,
 }: {
-  value: number
-  onChange: (v: number) => void
+  value: number | null
+  onChange: (v: number | null) => void
   decimals?: number
   suffix?: string
   width?: string
+  allowNull?: boolean
 }) {
   const [text, setText] = useState<string | null>(null)
   const [focus, setFocus] = useState(false)
-  const formatted = decimals ? Number(value).toFixed(decimals).replace('.', ',') : String(value)
+  const isNull = value === null
+  const formatted = isNull
+    ? focus
+      ? ''
+      : 'JSP'
+    : decimals
+      ? Number(value as number).toFixed(decimals).replace('.', ',')
+      : String(value)
   const display = text ?? formatted
 
   return (
@@ -831,7 +875,7 @@ function SimpleNumCell({
         inputMode="decimal"
         onFocus={(e) => {
           setFocus(true)
-          setText(String(value).replace('.', ','))
+          setText(isNull ? '' : String(value).replace('.', ','))
           requestAnimationFrame(() => e.target.select())
         }}
         onChange={(e) => {
@@ -839,7 +883,8 @@ function SimpleNumCell({
           setText(raw)
           const normalized = raw.replace(',', '.')
           if (normalized === '' || normalized === '-' || normalized === '.') {
-            onChange(0)
+            if (allowNull) onChange(null)
+            else onChange(0)
             return
           }
           const n = parseFloat(normalized)
@@ -860,12 +905,12 @@ function SimpleNumCell({
           fontFamily: 'var(--mono)',
           fontSize: 13,
           fontWeight: 600,
-          color: 'var(--ink)',
+          color: isNull && !focus ? 'var(--subtle)' : 'var(--ink)',
           padding: 0,
           fontVariantNumeric: 'tabular-nums',
         }}
       />
-      {suffix && (
+      {suffix && !isNull && (
         <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--subtle)' }}>
           {suffix}
         </span>

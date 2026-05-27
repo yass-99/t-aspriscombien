@@ -7,7 +7,8 @@ import type { NavFn } from '../_lib/types'
 import { WORKOUT_TYPES } from '../_lib/constants'
 import { formatMMSS } from '../_lib/helpers'
 import { Button, Card, IconButton, TopBar } from '../_components/primitives'
-import { ChevronLeft } from '../_components/icons'
+import { ChevronLeft, Copy, Trash } from '../_components/icons'
+import { formatSeanceAsText } from '../_lib/helpers'
 import { useToast } from '../../_components/Toast'
 
 type Props = {
@@ -70,6 +71,29 @@ export function SessionDetailScreen({ seanceId, nav }: Props) {
     }
   }, [seanceId, toast])
 
+  const handleCopy = async () => {
+    if (!seance) return
+    const text = formatSeanceAsText(seance)
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.focus()
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      toast.ok('Séance copiée.')
+    } catch {
+      toast.warn('Copie impossible.')
+    }
+  }
+
   const handleDelete = async () => {
     if (!seanceId) return
     setDeleting(true)
@@ -131,6 +155,7 @@ export function SessionDetailScreen({ seanceId, nav }: Props) {
               display: 'flex',
               gap: 8,
               padding: '10px 0 16px',
+              alignItems: 'stretch',
             }}
           >
             <Button
@@ -141,9 +166,17 @@ export function SessionDetailScreen({ seanceId, nav }: Props) {
             >
               Modifier
             </Button>
-            <Button variant="danger" size="md" full onClick={() => setConfirmDelete(true)}>
-              Supprimer
-            </Button>
+            <SquareIconButton
+              icon={<Copy size={17} />}
+              label="Copier la séance"
+              onClick={handleCopy}
+            />
+            <SquareIconButton
+              icon={<Trash size={17} />}
+              label="Supprimer la séance"
+              tone="danger"
+              onClick={() => setConfirmDelete(true)}
+            />
           </div>
 
           <div
@@ -185,6 +218,54 @@ export function SessionDetailScreen({ seanceId, nav }: Props) {
         )}
       </AnimatePresence>
     </div>
+  )
+}
+
+function SquareIconButton({
+  icon,
+  onClick,
+  label,
+  tone = 'neutral',
+}: {
+  icon: React.ReactNode
+  onClick: () => void
+  label: string
+  tone?: 'neutral' | 'danger'
+}) {
+  const [hover, setHover] = useState(false)
+  const isDanger = tone === 'danger'
+  const color = isDanger ? 'var(--danger)' : 'var(--ink)'
+  const ring = isDanger
+    ? 'color-mix(in oklch, var(--danger) 28%, var(--line))'
+    : 'var(--line)'
+  const hoverBg = isDanger
+    ? 'color-mix(in oklch, var(--danger) 14%, var(--surface))'
+    : 'var(--surface-2)'
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        width: 44,
+        height: 44,
+        flexShrink: 0,
+        borderRadius: 10,
+        border: 'none',
+        cursor: 'pointer',
+        background: hover ? hoverBg : 'var(--surface)',
+        color,
+        boxShadow: `0 0 0 1px ${ring} inset`,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transition: 'all 140ms',
+      }}
+    >
+      {icon}
+    </button>
   )
 }
 

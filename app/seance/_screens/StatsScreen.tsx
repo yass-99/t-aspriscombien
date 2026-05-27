@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence, animate, useReducedMotion } from 'motion/react'
-import type { SessionState, WorkoutStep } from '../_lib/types'
+import type { NavFn, SessionState } from '../_lib/types'
 import {
   useDashboard,
   type DashboardData,
@@ -13,11 +13,17 @@ import {
   type Period,
 } from '../_lib/useDashboard'
 import { Card, IconButton, TopBar } from '../_components/primitives'
-import { ChevronLeft, Flame } from '../_components/icons'
+import { ChevronLeft, ChevronRight, Flame, Timer } from '../_components/icons'
+import { BodyHeatmap } from '../_components/BodyHeatmap'
+import { HorizontalCardScroll } from '../_components/HorizontalCardScroll'
+import { useHeatmap } from '../_lib/useHeatmap'
+import { useRuns } from '../_lib/useRuns'
+import { formatChrono, formatRunDate } from '../_lib/runs'
+import type { Run } from '../_lib/types'
 
 type Props = {
   session: SessionState
-  nav: (s: WorkoutStep) => void
+  nav: NavFn
 }
 
 const PERIODS: { id: Period; label: string }[] = [
@@ -41,6 +47,8 @@ const fmt = (n: number) => n.toLocaleString('fr-FR')
 export function StatsScreen({ nav }: Props) {
   const [period, setPeriod] = useState<Period>('7d')
   const { data, loading } = useDashboard(period)
+  const { data: heatmap, loading: heatmapLoading } = useHeatmap(period)
+  const { runs, loading: runsLoading } = useRuns()
   const reduced = useReducedMotion()
 
   return (
@@ -73,7 +81,32 @@ export function StatsScreen({ nav }: Props) {
             </Section>
 
             <Section index={1}>
-              <DistributionBlock items={data?.distribution ?? []} loading={loading} />
+              <SectionTitle>Répartition</SectionTitle>
+              <HorizontalCardScroll
+                slides={[
+                  {
+                    id: 'heatmap',
+                    label: 'Vue corporelle',
+                    content: (
+                      <BodyHeatmap
+                        data={heatmap}
+                        loading={heatmapLoading}
+                        period={period}
+                      />
+                    ),
+                  },
+                  {
+                    id: 'donut',
+                    label: 'Par type de séance',
+                    content: (
+                      <DistributionCard
+                        items={data?.distribution ?? []}
+                        loading={loading}
+                      />
+                    ),
+                  },
+                ]}
+              />
             </Section>
 
             <Section index={2}>
@@ -86,6 +119,14 @@ export function StatsScreen({ nav }: Props) {
 
             <Section index={4}>
               <RecentPrsBlock items={data?.recentPrs ?? []} loading={loading} />
+            </Section>
+
+            <Section index={5}>
+              <SprintsBlock
+                runs={runs}
+                loading={runsLoading}
+                onOpenAll={() => nav('athletics', { athleticsView: 'hub' })}
+              />
             </Section>
           </motion.div>
         </AnimatePresence>
@@ -393,7 +434,7 @@ function Sparkline12w({ points }: { points: number[] }) {
 }
 
 // ───────────────────────── Distribution donut ─────────────────────────
-function DistributionBlock({
+function DistributionCard({
   items,
   loading,
 }: {
@@ -401,67 +442,64 @@ function DistributionBlock({
   loading: boolean
 }) {
   return (
-    <div>
-      <SectionTitle>Répartition</SectionTitle>
-      <Card style={{ padding: 16 }}>
-        {loading ? (
-          <EmptyLine label="…" />
-        ) : items.length === 0 ? (
-          <EmptyLine label="Pas de séance sur cette période." />
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-            <Donut items={items} />
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {items.map((d, i) => (
-                <motion.div
-                  key={d.type}
-                  initial={{ opacity: 0, x: 6 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.18 + i * 0.05, duration: 0.32 }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-                >
-                  <span
-                    style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: 3,
-                      background: TYPE_COLOR[d.type] ?? 'var(--muted)',
-                      flexShrink: 0,
-                    }}
-                    aria-hidden
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>
-                      {d.label}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 10,
-                        color: 'var(--subtle)',
-                        fontFamily: 'var(--mono)',
-                      }}
-                    >
-                      {d.seances} séance{d.seances > 1 ? 's' : ''}
-                    </div>
+    <Card style={{ padding: 16 }}>
+      {loading ? (
+        <EmptyLine label="…" />
+      ) : items.length === 0 ? (
+        <EmptyLine label="Pas de séance sur cette période." />
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+          <Donut items={items} />
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {items.map((d, i) => (
+              <motion.div
+                key={d.type}
+                initial={{ opacity: 0, x: 6 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.18 + i * 0.05, duration: 0.32 }}
+                style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+              >
+                <span
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: 3,
+                    background: TYPE_COLOR[d.type] ?? 'var(--muted)',
+                    flexShrink: 0,
+                  }}
+                  aria-hidden
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>
+                    {d.label}
                   </div>
                   <div
                     style={{
+                      fontSize: 10,
+                      color: 'var(--subtle)',
                       fontFamily: 'var(--mono)',
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: 'var(--ink-2)',
-                      fontVariantNumeric: 'tabular-nums',
                     }}
                   >
-                    {d.percent}%
+                    {d.seances} séance{d.seances > 1 ? 's' : ''}
                   </div>
-                </motion.div>
-              ))}
-            </div>
+                </div>
+                <div
+                  style={{
+                    fontFamily: 'var(--mono)',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: 'var(--ink-2)',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {d.percent}%
+                </div>
+              </motion.div>
+            ))}
           </div>
-        )}
-      </Card>
-    </div>
+        </div>
+      )}
+    </Card>
   )
 }
 
@@ -881,6 +919,253 @@ function EmptyLine({ label }: { label: string }) {
       }}
     >
       {label}
+    </div>
+  )
+}
+
+// ───────────────────────── Sprints ─────────────────────────
+function SprintsBlock({
+  runs,
+  loading,
+  onOpenAll,
+}: {
+  runs: Run[]
+  loading: boolean
+  onOpenAll: () => void
+}) {
+  // Best perf overall = chrono le plus rapide toutes distances confondues.
+  // Pour comparer équitablement entre distances on prend juste le plus rapide
+  // de chaque distance et on en garde celui qui a la vitesse (m/s) la plus élevée.
+  const bestByDistance = useMemo(() => {
+    const map = new Map<number, Run>()
+    for (const r of runs) {
+      const cur = map.get(r.distance_m)
+      if (!cur || r.duration_ms < cur.duration_ms) map.set(r.distance_m, r)
+    }
+    return Array.from(map.values())
+  }, [runs])
+
+  const bestOverall = useMemo(() => {
+    let best: Run | null = null
+    let bestSpeed = 0
+    for (const r of bestByDistance) {
+      const speed = r.distance_m / (r.duration_ms / 1000) // m/s
+      if (speed > bestSpeed) {
+        bestSpeed = speed
+        best = r
+      }
+    }
+    return best
+  }, [bestByDistance])
+
+  const recent = runs.slice(0, 3)
+
+  return (
+    <div>
+      <SectionTitle>Sprints</SectionTitle>
+      <Card style={{ padding: 0, overflow: 'hidden' }}>
+        {loading ? (
+          <EmptyLine label="…" />
+        ) : runs.length === 0 ? (
+          <div
+            style={{
+              padding: '18px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+            }}
+          >
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                background: 'var(--surface-2)',
+                color: 'var(--subtle)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Timer size={15} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, color: 'var(--ink-2)', fontWeight: 500 }}>
+                Aucun chrono pour l’instant
+              </div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: 'var(--subtle)',
+                  fontFamily: 'var(--mono)',
+                  marginTop: 1,
+                }}
+              >
+                Lance ton premier sprint depuis l’accueil
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {bestOverall && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '14px 14px',
+                  borderBottom: '1px solid var(--line-2)',
+                }}
+              >
+                <div
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 8,
+                    background: 'var(--accent-soft)',
+                    color: 'var(--accent)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Flame size={14} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: 'var(--accent)',
+                      fontWeight: 700,
+                      letterSpacing: 0.5,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Meilleure perf
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      gap: 8,
+                      marginTop: 2,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: 'var(--mono)',
+                        fontSize: 19,
+                        fontWeight: 600,
+                        color: 'var(--ink)',
+                        letterSpacing: -0.4,
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      {formatChrono(bestOverall.duration_ms)}
+                    </span>
+                    <span
+                      style={{
+                        fontFamily: 'var(--mono)',
+                        fontSize: 12,
+                        color: 'var(--accent)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {bestOverall.distance_m}m
+                    </span>
+                    <span
+                      style={{
+                        marginLeft: 'auto',
+                        fontSize: 10,
+                        color: 'var(--subtle)',
+                        fontFamily: 'var(--mono)',
+                      }}
+                    >
+                      {formatRunDate(bestOverall.date)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {recent.map((r, i) => (
+              <motion.div
+                key={r.id}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 + i * 0.05, duration: 0.32 }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '11px 14px',
+                  borderTop: i === 0 && bestOverall ? 'none' : '1px solid var(--line-2)',
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: 'var(--mono)',
+                    fontSize: 11,
+                    color: 'var(--muted)',
+                    width: 38,
+                    flexShrink: 0,
+                  }}
+                >
+                  {r.distance_m}m
+                </span>
+                <span
+                  style={{
+                    flex: 1,
+                    fontFamily: 'var(--mono)',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: 'var(--ink)',
+                    letterSpacing: -0.3,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {formatChrono(r.duration_ms)}
+                </span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: 'var(--subtle)',
+                    fontFamily: 'var(--mono)',
+                  }}
+                >
+                  {formatRunDate(r.date)}
+                </span>
+              </motion.div>
+            ))}
+
+            <button
+              onClick={onOpenAll}
+              style={{
+                width: '100%',
+                appearance: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                background: 'transparent',
+                color: 'var(--accent)',
+                padding: '12px 14px',
+                fontFamily: 'var(--font)',
+                fontSize: 13,
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+                borderTop: '1px solid var(--line-2)',
+              }}
+            >
+              Voir tout
+              <ChevronRight size={14} />
+            </button>
+          </>
+        )}
+      </Card>
     </div>
   )
 }

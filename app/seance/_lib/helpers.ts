@@ -54,6 +54,58 @@ function fmtPoids(n: number): string {
   return fixed.replace('.', ',')
 }
 
+type SeanceLike = {
+  date: string
+  type: string
+  restTargetSec: number
+  exos: {
+    nom: string
+    series: { poids: number; reps: number | null; rir: number | null; degressive: boolean }[]
+  }[]
+}
+
+export function formatSeanceAsText(seance: SeanceLike): string {
+  const type = WORKOUT_TYPES.find((t) => t.id === seance.type)
+  const typeLabel = type?.label ?? seance.type ?? 'Séance'
+
+  const d = new Date(seance.date + 'T00:00:00')
+  const dateLong = new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(d)
+
+  const exos = seance.exos.filter((e) => e.series.length > 0)
+  const totalSeries = exos.reduce((a, e) => a + e.series.length, 0)
+  const totalVolume = exos.reduce(
+    (a, e) => a + e.series.reduce((b, s) => (s.reps == null ? b : b + s.poids * s.reps), 0),
+    0,
+  )
+
+  const lines: string[] = []
+  lines.push(`# Séance ${typeLabel} — ${dateLong}`)
+  lines.push('')
+  lines.push(`- Repos cible entre séries : ${formatMMSS(seance.restTargetSec)} (${seance.restTargetSec}s)`)
+  lines.push(
+    `- Total : ${exos.length} exercice${exos.length > 1 ? 's' : ''} · ${totalSeries} série${totalSeries > 1 ? 's' : ''} · ${totalVolume.toLocaleString('fr-FR')} kg`,
+  )
+  lines.push('')
+
+  for (const exo of exos) {
+    lines.push(`## ${exo.nom}`)
+    exo.series.forEach((s, i) => {
+      const flag = s.degressive ? ' (dégressive)' : ''
+      const reps = s.reps == null ? 'JSP' : s.reps
+      const rir = s.rir == null ? 'JSP' : s.rir
+      lines.push(`${i + 1}. ${fmtPoids(s.poids)} kg × ${reps} reps · RIR ${rir}${flag}`)
+    })
+    lines.push('')
+  }
+
+  return lines.join('\n').trimEnd() + '\n'
+}
+
 export function formatSessionAsText(session: SessionState): string {
   const type = WORKOUT_TYPES.find((t) => t.id === session.type)
   const typeLabel = type?.label ?? session.type ?? 'Séance'
@@ -73,7 +125,7 @@ export function formatSessionAsText(session: SessionState): string {
   const exos = session.exos.filter((e) => e.series.length > 0)
   const totalSeries = exos.reduce((a, e) => a + e.series.length, 0)
   const totalVolume = exos.reduce(
-    (a, e) => a + e.series.reduce((b, s) => b + s.poids * s.reps, 0),
+    (a, e) => a + e.series.reduce((b, s) => (s.reps == null ? b : b + s.poids * s.reps), 0),
     0,
   )
 
@@ -90,7 +142,9 @@ export function formatSessionAsText(session: SessionState): string {
     lines.push(`## ${exo.nom}`)
     exo.series.forEach((s, i) => {
       const flag = s.degressive ? ' (dégressive)' : ''
-      lines.push(`${i + 1}. ${fmtPoids(s.poids)} kg × ${s.reps} reps · RIR ${s.rir}${flag}`)
+      const reps = s.reps == null ? 'JSP' : s.reps
+      const rir = s.rir == null ? 'JSP' : s.rir
+      lines.push(`${i + 1}. ${fmtPoids(s.poids)} kg × ${reps} reps · RIR ${rir}${flag}`)
     })
     lines.push('')
   }

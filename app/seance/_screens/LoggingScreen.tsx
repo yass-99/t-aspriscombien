@@ -7,13 +7,7 @@ import { formatMMSS, newId } from '../_lib/helpers'
 import { useRestTimer } from '../_lib/useRestTimer'
 import { useWakeLock } from '../_lib/useWakeLock'
 import { unlockAudio } from '../_lib/restAlert'
-import {
-  Button,
-  Card,
-  FinishPill,
-  IconButton,
-  NumericInput,
-} from '../_components/primitives'
+import { Button, Card, IconButton, NumericInput } from '../_components/primitives'
 import {
   Check,
   ChevronDown,
@@ -39,8 +33,8 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
 
   const lastSerie = curExo.series[curExo.series.length - 1]
   const [weight, setWeight] = useState<number>(lastSerie?.poids ?? 80)
-  const [reps, setReps] = useState<number>(lastSerie?.reps ?? 8)
-  const [rir, setRir] = useState<number>(lastSerie?.rir ?? 2)
+  const [reps, setReps] = useState<number | null>(lastSerie?.reps ?? 8)
+  const [rir, setRir] = useState<number | null>(lastSerie?.rir ?? 2)
   const [degressive, setDegressive] = useState<boolean>(false)
 
   const exKey = curExo.tempId || curExo.nom
@@ -175,7 +169,7 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
       )}
       <div style={{ padding: '14px 16px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
         <IconButton icon={<X size={16} />} label="quitter" onClick={() => nav('idle')} />
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, paddingRight: 44 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Séance {type?.label}</span>
             <span style={{ color: 'var(--subtle)' }}>·</span>
@@ -207,7 +201,6 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
             {curExo.nom}
           </div>
         </div>
-        <FinishPill onClick={finish} />
       </div>
 
       <div style={{ padding: '0 20px 12px', display: 'flex', gap: 5 }}>
@@ -236,7 +229,7 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
       <div
         style={{
           flex: 1,
-          padding: '4px 16px 12px',
+          padding: '4px 16px 120px',
           display: 'flex',
           flexDirection: 'column',
           gap: 12,
@@ -256,7 +249,7 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
           <NumericInput
             size="hero"
             value={weight}
-            onChange={setWeight}
+            onChange={(v) => setWeight(v ?? 0)}
             label="Charge"
             suffix="kg"
             hint={lastSerie ? `préc. ${lastSerie.poids} kg` : null}
@@ -275,7 +268,8 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
               label="Reps"
               step={1}
               max={50}
-              hint={lastSerie ? `×${lastSerie.reps}` : null}
+              allowNull
+              hint={lastSerie ? `×${lastSerie.reps ?? 'JSP'}` : null}
             />
             <NumericInput
               value={rir}
@@ -283,7 +277,8 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
               label="RIR"
               step={1}
               max={10}
-              hint={lastSerie ? `${lastSerie.rir}` : null}
+              allowNull
+              hint={lastSerie ? `${lastSerie.rir ?? 'JSP'}` : null}
             />
             <button
               onClick={() => setDegressive(!degressive)}
@@ -361,7 +356,7 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
               <span style={{ fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--mono)' }}>
                 {curExo.series.length} × · vol.{' '}
                 {curExo.series
-                  .reduce((a, s) => a + s.poids * s.reps, 0)
+                  .reduce((a, s) => (s.reps == null ? a : a + s.poids * s.reps), 0)
                   .toLocaleString('fr-FR')}{' '}
                 kg
               </span>
@@ -430,28 +425,31 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
                     {s.poids}
                     <span style={{ color: 'var(--subtle)', fontWeight: 400, fontSize: 11 }}>kg</span>
                     <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>×</span>
-                    {s.reps}
+                    <span style={{ color: s.reps == null ? 'var(--subtle)' : 'var(--ink)' }}>
+                      {s.reps == null ? 'JSP' : s.reps}
+                    </span>
                     {s.degressive && <DropIcon active size={12} style={{ marginLeft: 4 }} />}
                   </span>
                   <span
                     style={{
                       fontSize: 12,
-                      color: 'var(--muted)',
+                      color: s.reps == null ? 'var(--subtle)' : 'var(--muted)',
                       textAlign: 'right',
                       fontVariantNumeric: 'tabular-nums',
                     }}
                   >
-                    {(s.poids * s.reps).toLocaleString('fr-FR')}
+                    {s.reps == null ? '—' : (s.poids * s.reps).toLocaleString('fr-FR')}
                   </span>
                   <span
                     style={{
-                      fontSize: 12,
-                      color: 'var(--ink-2)',
+                      fontSize: 11,
+                      color: s.rir == null ? 'var(--subtle)' : 'var(--ink-2)',
                       textAlign: 'center',
                       fontWeight: 600,
+                      fontVariantNumeric: 'tabular-nums',
                     }}
                   >
-                    {s.rir}
+                    {s.rir == null ? 'JSP' : s.rir}
                   </span>
                   <Check size={13} color="var(--ok)" />
                 </div>
@@ -463,23 +461,48 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
 
       <div
         style={{
-          padding: '12px 16px 18px',
-          background: 'linear-gradient(180deg, transparent, var(--bg) 22%)',
-          display: 'flex',
-          gap: 8,
+          position: 'fixed',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 30,
+          padding: '14px 16px calc(env(safe-area-inset-bottom, 0px) + 16px)',
+          background: 'linear-gradient(180deg, transparent, var(--bg) 30%)',
+          pointerEvents: 'none',
         }}
       >
-        <Button onClick={enregistrer} icon={<Check size={16} />} style={{ flex: 2 }}>
-          Enregistrer
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={exerciceSuivant}
-          trailingIcon={<ChevronRight size={14} />}
-          style={{ flex: 1 }}
+        <div
+          style={{
+            maxWidth: 480,
+            margin: '0 auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+            pointerEvents: 'auto',
+          }}
         >
-          Exo suivant
-        </Button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button onClick={enregistrer} icon={<Check size={16} />} style={{ flex: 2 }}>
+              Enregistrer
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={exerciceSuivant}
+              trailingIcon={<ChevronRight size={14} />}
+              style={{ flex: 1 }}
+            >
+              Exo suivant
+            </Button>
+          </div>
+          <Button
+            variant="danger"
+            onClick={finish}
+            icon={<X size={16} stroke={2.4} />}
+            size="md"
+          >
+            Terminer
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -541,7 +564,7 @@ function RestScreen({
     <div
       style={{
         position: 'relative',
-        minHeight: '100%',
+        minHeight: '100dvh',
         width: '100%',
         background: done
           ? 'radial-gradient(120% 100% at 50% 0%, color-mix(in oklch, var(--accent) 20%, var(--bg)) 0%, var(--bg) 75%)'
@@ -558,7 +581,7 @@ function RestScreen({
           label="réduire le minuteur"
           onClick={onMinimise}
         />
-        <div style={{ flex: 1, textAlign: 'center' }}>
+        <div style={{ flex: 1, textAlign: 'center', paddingRight: 44 }}>
           <div
             style={{
               fontSize: 10,
@@ -582,7 +605,6 @@ function RestScreen({
             enregistrée
           </div>
         </div>
-        <FinishPill onClick={onFinish} />
       </div>
 
       <div
@@ -647,9 +669,9 @@ function RestScreen({
             <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink-2)' }}>
               {curExo.nom} ·{' '}
               <span style={{ fontFamily: 'var(--mono)', color: 'var(--ink)', fontWeight: 600 }}>
-                {justLogged.poids}kg × {justLogged.reps}
+                {justLogged.poids}kg × {justLogged.reps ?? 'JSP'}
               </span>
-              <span style={{ color: 'var(--subtle)' }}> · RIR {justLogged.rir}</span>
+              <span style={{ color: 'var(--subtle)' }}> · RIR {justLogged.rir ?? 'JSP'}</span>
             </span>
           </div>
         </div>
@@ -762,23 +784,41 @@ function RestScreen({
 
       <div
         style={{
-          padding: '12px 16px 96px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
+          padding: '14px 16px calc(env(safe-area-inset-bottom, 0px) + 16px)',
           background: 'linear-gradient(180deg, transparent, var(--bg) 30%)',
         }}
       >
-        <Button onClick={onNouvelleSerie} icon={<Plus size={16} />}>
-          Nouvelle série
-        </Button>
-        <Button
-          onClick={onExerciceSuivant}
-          variant="secondary"
-          trailingIcon={<ChevronRight size={14} />}
+        <div
+          style={{
+            maxWidth: 480,
+            margin: '0 auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+          }}
         >
-          Exercice suivant
-        </Button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button onClick={onNouvelleSerie} icon={<Plus size={16} />} style={{ flex: 2 }}>
+              Nouvelle série
+            </Button>
+            <Button
+              onClick={onExerciceSuivant}
+              variant="secondary"
+              trailingIcon={<ChevronRight size={14} />}
+              style={{ flex: 1 }}
+            >
+              Exo suivant
+            </Button>
+          </div>
+          <Button
+            variant="danger"
+            onClick={onFinish}
+            icon={<X size={16} stroke={2.4} />}
+            size="md"
+          >
+            Terminer
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -829,9 +869,9 @@ function SeriesContext({
       <span style={{ fontFamily: 'var(--mono)' }}>
         Précédent ·{' '}
         <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>
-          {lastSerie.poids} kg × {lastSerie.reps}
+          {lastSerie.poids} kg × {lastSerie.reps ?? 'JSP'}
         </strong>
-        <span style={{ color: 'var(--subtle)' }}> · RIR {lastSerie.rir}</span>
+        <span style={{ color: 'var(--subtle)' }}> · RIR {lastSerie.rir ?? 'JSP'}</span>
       </span>
     )
   } else if (prevExo) {
@@ -845,7 +885,7 @@ function SeriesContext({
           <span style={{ color: 'var(--subtle)', fontFamily: 'var(--mono)' }}>
             {' '}
             · {prevExo.series.length} série{prevExo.series.length > 1 ? 's' : ''} ·{' '}
-            {prevLast.poids}kg×{prevLast.reps}
+            {prevLast.poids}kg×{prevLast.reps ?? 'JSP'}
           </span>
         )}
       </span>

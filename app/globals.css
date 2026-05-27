@@ -71,8 +71,8 @@ input::placeholder { color: var(--subtle); }
   75% { transform: translateX(2px); }
 }
 @keyframes screenIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 @keyframes ringPulse {
   0%, 100% { transform: scale(1); }
