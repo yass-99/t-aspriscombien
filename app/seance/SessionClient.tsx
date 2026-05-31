@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { track } from '@vercel/analytics'
 import type { NavContext, SessionState, WorkoutStep } from './_lib/types'
 import { StepSwitcher } from './_components/StepSwitcher'
 import { AmbientBackground } from './_components/AmbientBackground'
@@ -21,6 +22,22 @@ import { AthleticsSummaryScreen } from './_screens/AthleticsSummaryScreen'
 import { AthleticsDetailScreen } from './_screens/athletisme_detail'
 
 const DEFAULT_REST = 90
+
+// Catégorie de chaque écran, pour filtrer les vues par domaine dans Vercel Analytics.
+const SCREEN_CATEGORY: Record<WorkoutStep, 'muscu' | 'athletisme' | 'global'> = {
+  idle: 'global',
+  stats: 'global',
+  history: 'global',
+  config: 'muscu',
+  exercise_select: 'muscu',
+  logging: 'muscu',
+  summary: 'muscu',
+  session_detail: 'muscu',
+  manual_entry: 'muscu',
+  athletics: 'athletisme',
+  athletics_summary: 'athletisme',
+  athletics_detail: 'athletisme',
+}
 
 function initialSession(): SessionState {
   return {
@@ -60,6 +77,13 @@ export default function SessionClient() {
       window.history.replaceState(null, '', '/seance')
     }
   }, [])
+
+  // Vues d'écran pour Vercel Analytics : la navigation se fait par changement
+  // d'étape (et non de route), donc on émet un événement custom à chaque écran
+  // pour pouvoir analyser le trafic page par page dans le dashboard.
+  useEffect(() => {
+    track('screen_view', { screen: step, category: SCREEN_CATEGORY[step] })
+  }, [step])
 
   const { profile, loading: profileLoading } = useProfile()
   const onboardingDismissed = useOnboardingDismiss()
