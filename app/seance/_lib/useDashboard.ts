@@ -1,9 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useToast } from '../../_components/Toast'
+import { createCachedResource } from './createCachedResource'
 
-export type Period = '7d' | '30d' | '90d' | 'all'
+export type Period = '7d' | '30d' | '90d'
 
 export type DistributionItem = {
   type: string
@@ -41,6 +40,7 @@ export type DashboardData = {
     volumePrev: number
     seances: number
     series: number
+    daily: number[] // volume par jour Lun→Dim (courbe « rythme » de la semaine)
   }
   lastSeance: {
     id: string
@@ -74,44 +74,26 @@ export type DashboardData = {
   recentPrs: RecentPR[]
 }
 
-export function useDashboard(period?: Period) {
-  const [data, setData] = useState<DashboardData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const toast = useToast()
+const STALE_MS = 3 * 60 * 1000 // 3 min — cohérent avec useExos.
 
-  useEffect(() => {
-    let cancelled = false
-    const run = async () => {
-      setLoading(true)
-      try {
-        const qs = period ? `?period=${encodeURIComponent(period)}` : ''
-        const res = await fetch(`/api/dashboard${qs}`)
-        if (cancelled) return
-        if (!res.ok) {
-          const e = await res.json().catch(() => ({}))
-          const msg = e.error || `Erreur ${res.status}`
-          setError(msg)
-          toast.error(`Tableau de bord : ${msg}`)
-        } else {
-          const d = (await res.json()) as DashboardData
-          setData(d)
-        }
-      } catch (e) {
-        if (!cancelled) {
-          const msg = e instanceof Error ? e.message : 'Erreur réseau'
-          setError(msg)
-          toast.warn(`Hors ligne ? ${msg}`)
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
+// Payload complet de StatsScreen, caché par période (variante = '7d'|'30d'|…).
+const resource = createCachedResource<DashboardData>({
+  storageKey: 'tcp:dashboard:stats:v1',
+  staleMs: STALE_MS,
+  fetcher: async (variant) => {
+    const qs = variant ? `?period=${encodeURIComponent(variant)}` : ''
+    const res = await fetch(`/api/dashboard${qs}`, { cache: 'no-store' })
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}))
+      throw new Error(e.error ?? `Erreur ${res.status}`)
     }
-    run()
-    return () => {
-      cancelled = true
-    }
-  }, [toast, period])
+    return (await res.json()) as DashboardData
+  },
+})
 
-  return { data, loading, error }
+/** À appeler après save/edit/delete d'une séance (toutes périodes confondues). */
+export const invalidateDashboard = () => resource.invalidate()
+
+export function useDashboard(period: Period = '7d') {
+  return resource.useResource(period)
 }

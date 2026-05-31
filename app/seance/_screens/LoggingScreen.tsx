@@ -3,12 +3,12 @@
 import { CSSProperties, Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react'
 import type { Exo, Serie, SessionState, TimerState, WorkoutStep } from '../_lib/types'
 import { WORKOUT_TYPES } from '../_lib/constants'
-import { formatMMSS, newId } from '../_lib/helpers'
+import { formatMMSS, fmtChargeLabel, newId } from '../_lib/helpers'
 import { useRestTimer } from '../_lib/useRestTimer'
 import { useWakeLock } from '../_lib/useWakeLock'
 import { useExos } from '../_lib/useExos'
 import { unlockAudio } from '../_lib/restAlert'
-import { Button, Card, IconButton, NumericInput } from '../_components/primitives'
+import { Button, Card, IconButton, NumericInput, Pill, StopSquare } from '../_components/primitives'
 import {
   Check,
   ChevronDown,
@@ -16,7 +16,6 @@ import {
   ChevronUp,
   Dumbbell,
   Plus,
-  Spark,
   X,
 } from '../_components/icons'
 
@@ -26,6 +25,13 @@ type Props = {
   nav: (s: WorkoutStep) => void
 }
 
+// Cascade d'entrée : chaque bloc de l'écran monte en fondu l'un après l'autre
+// (même grammaire de mouvement que ConfigScreen / ExerciseSelectScreen).
+const ENTER_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+const rise = (delayMs: number, durMs = 460): CSSProperties => ({
+  animation: `fadeUp ${durMs}ms ${delayMs}ms ${ENTER_EASE} both`,
+})
+
 export function LoggingScreen({ session, setSession, nav }: Props) {
   const curExIdx = session.currentExoIndex ?? 0
   const curExo = session.exos?.[curExIdx] || { tempId: '', nom: '—', series: [] as Serie[] }
@@ -33,7 +39,7 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
   const totalExercises = Math.max(4, session.exos?.length || 1)
 
   const lastSerie = curExo.series[curExo.series.length - 1]
-  const { exos: dbExos } = useExos()
+  const { exos: dbExos, loading: exosLoading } = useExos()
 
   // Récupère la dernière charge/reps connue pour cet exo depuis l'historique.
   const dbMatch = useMemo(() => {
@@ -42,20 +48,47 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
     return dbExos.find((e) => e.nom.trim().toLowerCase() === nomKey) ?? null
   }, [dbExos, curExo.nom])
 
-  const [weight, setWeight] = useState<number>(lastSerie?.poids ?? dbMatch?.lastPoids ?? 80)
+  const isPdc = !!curExo.isBodyweight
+  const isUni = !!curExo.isUnilateral
+  // Sans lest, un exo PDC démarre à 0 (poids du corps seul) ; sinon défaut classique.
+  const defaultWeight = isPdc ? 0 : 80
+
+  const [weight, setWeight] = useState<number>(lastSerie?.poids ?? dbMatch?.lastPoids ?? defaultWeight)
   const [reps, setReps] = useState<number | null>(lastSerie?.reps ?? dbMatch?.lastReps ?? 8)
   const [rir, setRir] = useState<number | null>(lastSerie?.rir ?? 2)
   const [degressive, setDegressive] = useState<boolean>(false)
 
   const exKey = curExo.tempId || curExo.nom
+
+  // Patch des champs de l'exo courant (flags PDC / unilatéral, au niveau exo).
+  const patchExo = (patch: Partial<Exo>) =>
+    setSession((s) => {
+      const exos = [...s.exos]
+      exos[curExIdx] = { ...exos[curExIdx], ...patch }
+      return { ...s, exos }
+    })
+
+  // Pré-remplissage des flags depuis le dernier usage du même exo (une seule fois,
+  // tant qu'ils ne sont pas définis — l'utilisateur garde la main ensuite).
+  useEffect(() => {
+    if (!dbMatch) return
+    if (curExo.isBodyweight === undefined || curExo.isUnilateral === undefined) {
+      patchExo({
+        isBodyweight: curExo.isBodyweight ?? dbMatch.lastIsBodyweight,
+        isUnilateral: curExo.isUnilateral ?? dbMatch.lastIsUnilateral,
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exKey, dbMatch])
+
   useEffect(() => {
     const ls = curExo.series[curExo.series.length - 1]
     // Si pas de série précédente dans la session, on retombe sur l'historique DB.
-    setWeight(ls?.poids ?? dbMatch?.lastPoids ?? 80)
+    setWeight(ls?.poids ?? dbMatch?.lastPoids ?? (curExo.isBodyweight ? 0 : 80))
     setReps(ls?.reps ?? dbMatch?.lastReps ?? 8)
     setRir(ls?.rir ?? 2)
     setDegressive(false)
-  }, [exKey, curExo.series.length, dbMatch])
+  }, [exKey, curExo.series.length, curExo.isBodyweight, dbMatch])
 
   const { adjust: adjustTimer } = useRestTimer(session, setSession)
   const status = session.timer.status
@@ -158,7 +191,6 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
   }
 
   const setNumber = curExo.series.length + 1
-  const exerciseNumber = curExIdx + 1
 
   return (
     <div
@@ -167,7 +199,7 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
         minHeight: '100%',
         display: 'flex',
         flexDirection: 'column',
-        background: 'var(--bg)',
+        background: 'transparent',
       }}
     >
       {timerActive && isMinimised && (
@@ -178,20 +210,24 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
           onAdd={adjustTimer}
         />
       )}
-      <div style={{ padding: '14px 16px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div
+        style={{
+          padding: '14px 16px 12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          ...rise(40),
+        }}
+      >
         <IconButton icon={<X size={16} />} label="quitter" onClick={() => nav('idle')} />
         <div style={{ flex: 1, minWidth: 0, paddingRight: 44 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Séance {type?.label}</span>
             <span style={{ color: 'var(--subtle)' }}>·</span>
-            <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-              Exercice {exerciseNumber}/{totalExercises}
-            </span>
-            <span style={{ color: 'var(--subtle)' }}>·</span>
             <span
               style={{
                 fontSize: 11,
-                color: 'var(--accent)',
+                color: 'var(--brand-bright)',
                 fontFamily: 'var(--mono)',
                 fontWeight: 600,
               }}
@@ -199,22 +235,26 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
               Série {setNumber}
             </span>
           </div>
-          <div
-            style={{
-              fontSize: 18,
-              fontWeight: 600,
-              letterSpacing: -0.4,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {curExo.nom}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <span
+              style={{
+                fontSize: 18,
+                fontWeight: 600,
+                letterSpacing: -0.4,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {curExo.nom}
+            </span>
+            {isPdc && <Pill tone="accent">PDC</Pill>}
+            {isUni && <Pill tone="neutral">uni</Pill>}
           </div>
         </div>
       </div>
 
-      <div style={{ padding: '0 20px 12px', display: 'flex', gap: 5 }}>
+      <div style={{ padding: '0 20px 12px', display: 'flex', gap: 5, ...rise(90) }}>
         {Array.from({ length: Math.max(4, curExo.series.length + 1) }).map((_, i) => {
           const done = i < curExo.series.length
           const current = i === curExo.series.length
@@ -226,9 +266,9 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
                 height: 3,
                 borderRadius: 2,
                 background: done
-                  ? 'var(--accent)'
+                  ? 'var(--brand)'
                   : current
-                    ? 'var(--accent-line)'
+                    ? 'var(--brand-line)'
                     : 'var(--line)',
                 transition: 'background 220ms',
               }}
@@ -246,29 +286,42 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
           gap: 12,
         }}
       >
-        <SeriesContext
-          setNumber={setNumber}
-          curExo={curExo}
-          curExIdx={curExIdx}
-          exos={session.exos}
-          lastSerie={lastSerie}
-        />
+        {/* Toggles PDC / unilatéral réservés à la CRÉATION d'un exo absent de la DB :
+            pour un exo déjà connu, les flags sont fixés (cf. catalogue exercises) et
+            servent d'indicatif — l'utilisateur ne les modifie plus ici. L'indication
+            reste visible via les Pills PDC/uni dans l'en-tête. */}
+        {!exosLoading && !dbMatch && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <FlagChip
+              label="Poids du corps"
+              active={isPdc}
+              onClick={() => patchExo({ isBodyweight: !isPdc })}
+            />
+            <FlagChip
+              label="Unilatéral"
+              active={isUni}
+              onClick={() => patchExo({ isUnilateral: !isUni })}
+            />
+          </div>
+        )}
 
-        <Card
-          style={{ padding: 16, animation: 'fadeUp 320ms ease both' }}
-        >
+        <Card style={{ padding: 16, ...rise(140) }}>
           <NumericInput
             size="hero"
             value={weight}
             onChange={(v) => setWeight(v ?? 0)}
-            label="Charge"
+            label={isPdc ? 'Lest' : 'Charge'}
             suffix="kg"
             hint={
-              lastSerie
-                ? `préc. ${lastSerie.poids} kg`
-                : dbMatch?.lastPoids != null
-                  ? `histo. ${dbMatch.lastPoids} kg`
-                  : null
+              isPdc
+                ? lastSerie
+                  ? `lest préc. ${lastSerie.poids} kg`
+                  : 'poids du corps'
+                : lastSerie
+                  ? `préc. ${lastSerie.poids} kg`
+                  : dbMatch?.lastPoids != null
+                    ? `histo. ${dbMatch.lastPoids} kg`
+                    : null
             }
             step={2.5}
             decimals={1}
@@ -277,7 +330,7 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
           />
         </Card>
 
-        <Card style={{ padding: 14 }}>
+        <Card style={{ padding: 14, ...rise(190) }}>
           <div style={{ display: 'flex', gap: 10 }}>
             <NumericInput
               value={reps}
@@ -340,10 +393,10 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
                   height: 56,
                   padding: '0 8px',
                   borderRadius: 14,
-                  background: degressive ? 'var(--accent)' : 'var(--surface)',
-                  color: degressive ? 'var(--accent-ink)' : 'var(--ink-2)',
+                  background: degressive ? 'var(--brand)' : 'var(--surface)',
+                  color: degressive ? 'var(--brand-ink)' : 'var(--ink-2)',
                   boxShadow: degressive
-                    ? '0 8px 22px -8px color-mix(in oklch, var(--accent) 55%, transparent)'
+                    ? '0 8px 22px -8px color-mix(in oklch, var(--brand) 55%, transparent)'
                     : '0 0 0 1px var(--line) inset',
                   transition: 'all 200ms',
                 }}
@@ -356,7 +409,7 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
         </Card>
 
         {curExo.series.length > 0 && (
-          <div style={{ animation: 'fadeUp 320ms ease both' }}>
+          <div style={{ ...rise(240) }}>
             <div
               style={{
                 display: 'flex',
@@ -417,6 +470,8 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
                     padding: '12px 14px',
                     borderTop: i === 0 ? 'none' : '1px solid var(--line-2)',
                     fontFamily: 'var(--mono)',
+                    // Chaque nouvelle série glisse en fondu à son montage.
+                    animation: `fadeUp 300ms ${ENTER_EASE} both`,
                   }}
                 >
                   <div
@@ -445,8 +500,16 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
                       gap: 4,
                     }}
                   >
-                    {s.poids}
-                    <span style={{ color: 'var(--subtle)', fontWeight: 400, fontSize: 11 }}>kg</span>
+                    {isPdc ? (
+                      <span>{fmtChargeLabel(s.poids, true)}</span>
+                    ) : (
+                      <>
+                        {s.poids}
+                        <span style={{ color: 'var(--subtle)', fontWeight: 400, fontSize: 11 }}>
+                          kg
+                        </span>
+                      </>
+                    )}
                     <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>×</span>
                     <span style={{ color: s.reps == null ? 'var(--subtle)' : 'var(--ink)' }}>
                       {s.reps == null ? 'JSP' : s.reps}
@@ -474,7 +537,7 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
                   >
                     {s.rir == null ? 'JSP' : s.rir}
                   </span>
-                  <Check size={13} color="var(--ok)" />
+                  <Check size={13} color="var(--brand-bright)" />
                 </div>
               ))}
             </Card>
@@ -502,32 +565,67 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
             flexDirection: 'column',
             gap: 10,
             pointerEvents: 'auto',
+            ...rise(300),
           }}
         >
+          {/* Trois actions groupées en bas : « Exo suivant » et « Stop » côte à
+              côte, « Enregistrer » (la plus fréquente) pleine largeur au plus
+              près du pouce. « Stop » clôture directement la séance (= Terminer),
+              sans confirmation. */}
           <div style={{ display: 'flex', gap: 8 }}>
-            <Button onClick={enregistrer} icon={<Check size={16} />} style={{ flex: 2 }}>
-              Enregistrer
-            </Button>
             <Button
               variant="secondary"
               onClick={exerciceSuivant}
-              trailingIcon={<ChevronRight size={14} />}
+              trailingIcon={<ChevronRight size={16} />}
               style={{ flex: 1 }}
             >
               Exo suivant
             </Button>
+            <StopButton onClick={finish} />
           </div>
-          <Button
-            variant="danger"
-            onClick={finish}
-            icon={<X size={16} stroke={2.4} />}
-            size="md"
-          >
-            Terminer
+          <Button onClick={enregistrer} icon={<Check size={16} />}>
+            Enregistrer
           </Button>
         </div>
       </div>
     </div>
+  )
+}
+
+// Bouton « Stop » : clôture la séance directement (= « Terminer »), sans modal.
+// Ton danger, libellé explicite, posé en bas à côté de « Exo suivant ».
+function StopButton({ onClick }: { onClick: () => void }) {
+  const [hover, setHover] = useState(false)
+  return (
+    <button
+      onClick={onClick}
+      aria-label="Terminer la séance"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="tap"
+      style={{
+        height: 52,
+        flexShrink: 0,
+        padding: '0 20px',
+        borderRadius: 16,
+        border: 'none',
+        cursor: 'pointer',
+        background: hover
+          ? 'color-mix(in oklch, var(--danger) 18%, var(--surface))'
+          : 'var(--surface)',
+        color: 'var(--danger)',
+        boxShadow: '0 0 0 1px color-mix(in oklch, var(--danger) 28%, var(--hairline)) inset',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        fontSize: 15,
+        fontWeight: 600,
+        transition: 'background 140ms',
+      }}
+    >
+      <StopSquare size={15} color="var(--danger)" />
+      Stop
+    </button>
   )
 }
 
@@ -551,7 +649,7 @@ function RestScreen({
   timer: TimerState
   target: number
   typeLabel?: string
-  curExo: Exo | { tempId: string; nom: string; series: Serie[] }
+  curExo: Exo | { tempId: string; nom: string; series: Serie[]; isBodyweight?: boolean; isUnilateral?: boolean }
   curExIdx: number
   totalExercises: number
   onAdd: (delta: number) => void
@@ -576,22 +674,21 @@ function RestScreen({
   const setNumberJustDone = curExo.series.length
   const exerciseNumber = curExIdx + 1
 
-  let headline: [string, string]
-  if (setNumberJustDone <= 1) headline = ['Belle ouverture.', 'Profite du repos.']
-  else if (setNumberJustDone === 2) headline = ['Deux de faites.', 'On garde le rythme.']
-  else if (setNumberJustDone === 3) headline = ['Encore une bonne.', 'Tiens la cadence.']
-  else headline = ['Tu pousses fort.', 'Souffle, ressers.']
-  if (done) headline = ['Prêt.', 'Quand tu veux.']
-
   return (
     <div
       style={{
         position: 'relative',
         minHeight: '100dvh',
         width: '100%',
+        // Halo ambiant violet en taches radiales (même grammaire que
+        // AmbientBackground, cf. DESIGN §4) : c'est cette matière que le panneau
+        // en verre dépoli diffuse en arrière-plan. Renforcé à la fin du repos.
+        // La tache centrée (50% 52%) est volontaire : elle passe DERRIÈRE le panneau
+        // en verre pour lui donner de la matière violette à diffuser (sinon le blur
+        // ne capte qu'un fond sombre au centre). Les autres taches habillent les bords.
         background: done
-          ? 'radial-gradient(120% 100% at 50% 0%, color-mix(in oklch, var(--accent) 20%, var(--bg)) 0%, var(--bg) 75%)'
-          : 'radial-gradient(120% 70% at 50% 0%, color-mix(in oklch, var(--accent) 10%, var(--bg)) 0%, var(--bg) 60%)',
+          ? 'radial-gradient(70% 50% at 50% 0%, color-mix(in oklch, var(--brand) 30%, transparent) 0%, transparent 72%), radial-gradient(54% 46% at 50% 52%, color-mix(in oklch, var(--brand) 22%, transparent) 0%, transparent 72%), radial-gradient(45% 32% at 85% 8%, color-mix(in oklch, var(--brand-2, var(--brand)) 20%, transparent) 0%, transparent 70%), radial-gradient(52% 36% at 14% 14%, color-mix(in oklch, var(--brand) 16%, transparent) 0%, transparent 72%), var(--bg)'
+          : 'radial-gradient(62% 42% at 50% 0%, color-mix(in oklch, var(--brand) 20%, transparent) 0%, transparent 70%), radial-gradient(50% 42% at 50% 52%, color-mix(in oklch, var(--brand) 14%, transparent) 0%, transparent 72%), radial-gradient(42% 30% at 85% 8%, color-mix(in oklch, var(--brand-2, var(--brand)) 14%, transparent) 0%, transparent 70%), radial-gradient(50% 34% at 14% 14%, color-mix(in oklch, var(--brand) 11%, transparent) 0%, transparent 72%), var(--bg)',
         display: 'flex',
         flexDirection: 'column',
         animation: 'fadeUp 320ms cubic-bezier(0.22, 1, 0.36, 1) both',
@@ -614,7 +711,7 @@ function RestScreen({
               textTransform: 'uppercase',
             }}
           >
-            Repos en cours
+            {done ? 'Repos terminé' : 'Repos'}
           </div>
           <div
             style={{
@@ -624,35 +721,9 @@ function RestScreen({
               fontFamily: 'var(--mono)',
             }}
           >
-            Séance {typeLabel} · Exo {exerciseNumber}/{totalExercises} · Série {setNumberJustDone}{' '}
-            enregistrée
+            {typeLabel} · Exo {exerciseNumber}/{totalExercises} · Série {setNumberJustDone}
           </div>
         </div>
-      </div>
-
-      <div
-        style={{
-          padding: '14px 24px 0',
-          textAlign: 'center',
-          animation: 'fadeUp 380ms 80ms cubic-bezier(0.22, 1, 0.36, 1) both',
-        }}
-      >
-        <h1
-          style={{
-            margin: 0,
-            fontSize: 30,
-            fontWeight: 700,
-            letterSpacing: -1.2,
-            lineHeight: 1.05,
-            color: 'var(--ink)',
-            textWrap: 'balance',
-            fontFamily: 'var(--display)',
-          }}
-        >
-          {headline[0]}
-          <br />
-          <span style={{ color: 'var(--muted)', fontWeight: 600 }}>{headline[1]}</span>
-        </h1>
       </div>
 
       {justLogged && (
@@ -680,8 +751,8 @@ function RestScreen({
                 width: 18,
                 height: 18,
                 borderRadius: 999,
-                background: 'var(--ok)',
-                color: 'var(--bg)',
+                background: 'var(--brand)',
+                color: 'var(--brand-ink)',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -692,7 +763,7 @@ function RestScreen({
             <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink-2)' }}>
               {curExo.nom} ·{' '}
               <span style={{ fontFamily: 'var(--mono)', color: 'var(--ink)', fontWeight: 600 }}>
-                {justLogged.poids}kg × {justLogged.reps ?? 'JSP'}
+                {fmtChargeLabel(justLogged.poids, curExo.isBodyweight)} × {justLogged.reps ?? 'JSP'}
               </span>
               <span style={{ color: 'var(--subtle)' }}> · RIR {justLogged.rir ?? 'JSP'}</span>
             </span>
@@ -711,14 +782,33 @@ function RestScreen({
           padding: '24px 20px',
         }}
       >
+        {/* Panneau en verre dépoli posé sur le halo violet ambiant (cf. DESIGN §2 :
+            cartes en glass, jamais sur du noir plat). Élévation par hairline + highlight,
+            sans drop-shadow (§3). */}
         <div
           style={{
-            position: 'relative',
-            width: RING_W,
-            height: RING_W,
-            animation: timer.justFinished ? 'ringPulse 700ms ease-out' : 'none',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 22,
+            padding: '34px 30px 28px',
+            borderRadius: 32,
+            background: 'var(--glass-strong)',
+            backdropFilter: 'blur(22px) saturate(1.5)',
+            WebkitBackdropFilter: 'blur(22px) saturate(1.5)',
+            boxShadow:
+              '0 0 0 1px var(--glass-border) inset, 0 1px 0 0 var(--glass-highlight) inset',
+            animation: 'fadeUp 420ms 80ms cubic-bezier(0.22, 1, 0.36, 1) both',
           }}
         >
+          <div
+            style={{
+              position: 'relative',
+              width: RING_W,
+              height: RING_W,
+              animation: timer.justFinished ? 'ringPulse 700ms ease-out' : 'none',
+            }}
+          >
           <svg
             width={RING_W}
             height={RING_W}
@@ -726,8 +816,8 @@ function RestScreen({
           >
             <defs>
               <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="var(--accent)" />
-                <stop offset="100%" stopColor="color-mix(in oklch, var(--accent) 70%, black)" />
+                <stop offset="0%" stopColor="var(--brand-bright)" />
+                <stop offset="100%" stopColor="var(--brand)" />
               </linearGradient>
             </defs>
             <circle
@@ -742,7 +832,7 @@ function RestScreen({
               cx={RING_W / 2}
               cy={RING_W / 2}
               r={R}
-              stroke={done ? 'var(--accent)' : 'url(#ringGrad)'}
+              stroke={done ? 'var(--brand-bright)' : 'url(#ringGrad)'}
               strokeWidth={STROKE}
               strokeLinecap="round"
               fill="none"
@@ -771,7 +861,7 @@ function RestScreen({
                 fontWeight: 600,
                 letterSpacing: -2.5,
                 lineHeight: 1,
-                color: done ? 'var(--accent)' : 'var(--ink)',
+                color: done ? 'var(--brand-bright)' : 'var(--ink)',
                 transition: 'color 300ms',
                 fontVariantNumeric: 'tabular-nums',
                 animation: timer.justFinished ? 'pulse 600ms ease' : 'none',
@@ -792,16 +882,17 @@ function RestScreen({
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 22 }}>
-          <button onClick={() => onAdd(-15)} style={{ ...timerChipStyle, color: 'var(--muted)' }}>
-            −15s
-          </button>
-          <button onClick={() => onAdd(10)} style={timerChipStyle}>
-            +10s
-          </button>
-          <button onClick={() => onAdd(30)} style={timerChipStyle}>
-            +30s
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => onAdd(-15)} style={{ ...timerChipStyle, color: 'var(--muted)' }}>
+              −15s
+            </button>
+            <button onClick={() => onAdd(10)} style={timerChipStyle}>
+              +10s
+            </button>
+            <button onClick={() => onAdd(30)} style={timerChipStyle}>
+              +30s
+            </button>
+          </div>
         </div>
       </div>
 
@@ -821,25 +912,18 @@ function RestScreen({
           }}
         >
           <div style={{ display: 'flex', gap: 8 }}>
-            <Button onClick={onNouvelleSerie} icon={<Plus size={16} />} style={{ flex: 2 }}>
-              Nouvelle série
-            </Button>
             <Button
               onClick={onExerciceSuivant}
               variant="secondary"
-              trailingIcon={<ChevronRight size={14} />}
+              trailingIcon={<ChevronRight size={16} />}
               style={{ flex: 1 }}
             >
               Exo suivant
             </Button>
+            <StopButton onClick={onFinish} />
           </div>
-          <Button
-            variant="danger"
-            onClick={onFinish}
-            icon={<X size={16} stroke={2.4} />}
-            size="md"
-          >
-            Terminer
+          <Button onClick={onNouvelleSerie} icon={<Plus size={16} />}>
+            Nouvelle série
           </Button>
         </div>
       </div>
@@ -853,7 +937,7 @@ const timerChipStyle: CSSProperties = {
   borderRadius: 999,
   border: 'none',
   background: 'var(--surface)',
-  boxShadow: '0 0 0 1px var(--line) inset, 0 4px 12px rgba(0,0,0,0.30)',
+  boxShadow: '0 0 0 1px var(--line) inset',
   fontFamily: 'var(--mono)',
   fontSize: 13,
   fontWeight: 600,
@@ -862,136 +946,61 @@ const timerChipStyle: CSSProperties = {
   transition: 'all 140ms',
 }
 
-// ══════════════════════════════════════════════════════════════════
-// SERIES CONTEXT
-// ══════════════════════════════════════════════════════════════════
-function SeriesContext({
-  setNumber,
-  curExo,
-  curExIdx,
-  exos,
-  lastSerie,
+// Chip toggle au niveau exo (PDC / unilatéral), aligné sur le style « Dégressive ».
+function FlagChip({
+  label,
+  active,
+  onClick,
 }: {
-  setNumber: number
-  curExo: Exo | { tempId: string; nom: string; series: Serie[] }
-  curExIdx: number
-  exos: Exo[]
-  lastSerie?: Serie
+  label: string
+  active: boolean
+  onClick: () => void
 }) {
-  const hasPrev = !!lastSerie
-  const prevExo = !hasPrev && curExIdx > 0 ? exos?.[curExIdx - 1] : null
-
-  let tone: 'continuing' | 'transition' | 'first'
-  let eyebrow: string
-  let body: React.ReactNode
-
-  if (hasPrev && lastSerie) {
-    tone = 'continuing'
-    eyebrow = `Série ${setNumber}`
-    body = (
-      <span style={{ fontFamily: 'var(--mono)' }}>
-        Précédent ·{' '}
-        <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>
-          {lastSerie.poids} kg × {lastSerie.reps ?? 'JSP'}
-        </strong>
-        <span style={{ color: 'var(--subtle)' }}> · RIR {lastSerie.rir ?? 'JSP'}</span>
-      </span>
-    )
-  } else if (prevExo) {
-    const prevLast = prevExo.series[prevExo.series.length - 1]
-    tone = 'transition'
-    eyebrow = `Première série · ${curExo.nom}`
-    body = (
-      <span>
-        Après <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{prevExo.nom}</strong>
-        {prevLast && (
-          <span style={{ color: 'var(--subtle)', fontFamily: 'var(--mono)' }}>
-            {' '}
-            · {prevExo.series.length} série{prevExo.series.length > 1 ? 's' : ''} ·{' '}
-            {prevLast.poids}kg×{prevLast.reps ?? 'JSP'}
-          </span>
-        )}
-      </span>
-    )
-  } else {
-    tone = 'first'
-    eyebrow = 'Première série'
-    body = (
-      <span>
-        Pas de référence —{' '}
-        <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>échauffe-toi</strong>, prends ton
-        temps.
-      </span>
-    )
-  }
-
-  const bg =
-    tone === 'first'
-      ? 'var(--accent-soft)'
-      : tone === 'transition'
-        ? 'color-mix(in oklch, var(--accent) 10%, var(--surface))'
-        : 'var(--surface)'
-  const ring = tone === 'continuing' ? 'var(--line)' : 'var(--accent-line)'
-  const iconBg = tone === 'continuing' ? 'var(--surface-2)' : 'var(--accent)'
-  const iconColor = tone === 'continuing' ? 'var(--ink-2)' : 'var(--accent-ink)'
-
   return (
-    <div
+    <button
+      onClick={onClick}
+      aria-pressed={active}
       style={{
-        padding: '14px 14px',
-        borderRadius: 14,
-        background: bg,
-        boxShadow: `0 0 0 1px ${ring} inset`,
-        animation: 'fadeUp 280ms ease both',
+        flex: 1,
+        minWidth: 0,
+        appearance: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        height: 44,
+        padding: '0 12px',
+        borderRadius: 12,
+        background: active ? 'var(--brand)' : 'var(--surface)',
+        color: active ? 'var(--brand-ink)' : 'var(--ink-2)',
+        boxShadow: active
+          ? '0 8px 22px -8px color-mix(in oklch, var(--brand) 55%, transparent)'
+          : '0 0 0 1px var(--line) inset',
+        fontSize: 13,
+        fontWeight: 600,
+        transition: 'all 200ms',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            background: iconBg,
-            color: iconColor,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontFamily: 'var(--mono)',
-            fontWeight: 600,
-            fontSize: 15,
-            flexShrink: 0,
-          }}
-        >
-          {tone === 'continuing' ? setNumber : <Spark size={15} color="var(--accent-ink)" />}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 11,
-              color: tone === 'continuing' ? 'var(--muted)' : 'var(--accent)',
-              fontWeight: 700,
-              letterSpacing: 0.4,
-              textTransform: 'uppercase',
-              marginBottom: 2,
-            }}
-          >
-            {eyebrow}
-          </div>
-          <div
-            style={{
-              fontSize: 13,
-              color: 'var(--ink-2)',
-              lineHeight: 1.35,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {body}
-          </div>
-        </div>
-      </div>
-    </div>
+      <span
+        style={{
+          width: 16,
+          height: 16,
+          borderRadius: 5,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: active ? 'var(--brand-ink)' : 'transparent',
+          color: active ? 'var(--brand)' : 'var(--muted)',
+          boxShadow: active ? 'none' : '0 0 0 1.5px var(--line) inset',
+          flexShrink: 0,
+        }}
+      >
+        {active && <Check size={11} stroke={3} />}
+      </span>
+      {label}
+    </button>
   )
 }
 
@@ -1008,7 +1017,7 @@ function DropIcon({
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={style} aria-hidden>
       <path
         d="M5 5l14 14M12 19h7v-7"
-        stroke={active ? 'var(--accent-ink)' : 'currentColor'}
+        stroke={active ? 'var(--brand-ink)' : 'currentColor'}
         strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -1045,7 +1054,7 @@ function MinimisedTimerBar({
         top: 0,
         zIndex: 30,
         background: done
-          ? 'color-mix(in oklch, var(--accent) 22%, var(--surface))'
+          ? 'color-mix(in oklch, var(--brand) 22%, var(--surface))'
           : 'var(--surface)',
         boxShadow: '0 0 0 1px var(--line) inset, 0 8px 24px -10px rgba(0,0,0,0.50)',
         animation: 'fadeUp 220ms ease both',
@@ -1074,7 +1083,7 @@ function MinimisedTimerBar({
             height: 34,
             borderRadius: 999,
             background: 'var(--surface-2)',
-            color: done ? 'var(--accent)' : 'var(--ink)',
+            color: done ? 'var(--brand-bright)' : 'var(--ink)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -1106,7 +1115,7 @@ function MinimisedTimerBar({
               fontSize: 14,
               fontWeight: 600,
               letterSpacing: -0.2,
-              color: done ? 'var(--accent)' : 'var(--ink)',
+              color: done ? 'var(--brand-bright)' : 'var(--ink)',
               fontVariantNumeric: 'tabular-nums',
             }}
           >
@@ -1154,7 +1163,7 @@ function MinimisedTimerBar({
           style={{
             height: '100%',
             width: `${pct * 100}%`,
-            background: done ? 'var(--accent)' : 'var(--accent-strong)',
+            background: done ? 'var(--brand-bright)' : 'var(--brand)',
             transition: 'width 600ms linear',
           }}
         />

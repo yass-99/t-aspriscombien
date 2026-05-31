@@ -10,6 +10,7 @@ export type WorkoutStep =
   | 'manual_entry'
   | 'athletics'
   | 'athletics_summary'
+  | 'athletics_detail'
 
 export type Run = {
   id: string
@@ -28,6 +29,9 @@ export type NavContext = {
   // Renseigné par AthleticsScreen quand l'utilisateur termine sa session,
   // ou par HistoryScreen quand on consulte une séance athlé passée.
   athleticsRunIds?: string[]
+  // Sous-étape sur laquelle (ré)ouvrir le ConfigScreen. Permet au retour depuis
+  // exercise_select de retomber sur l'étape « chrono » plutôt que « type ».
+  configStep?: 'type' | 'chrono'
 }
 
 export type NavFn = (step: WorkoutStep, ctx?: NavContext) => void
@@ -44,6 +48,10 @@ export type Serie = {
 export type Exo = {
   tempId: string
   nom: string
+  // Poids du corps : la charge saisie par série représente le lest (0 = sans lest).
+  isBodyweight?: boolean
+  // Exercice unilatéral — indication seule, aucun impact sur les calculs.
+  isUnilateral?: boolean
   series: Serie[]
 }
 

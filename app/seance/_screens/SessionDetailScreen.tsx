@@ -6,10 +6,11 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { NavFn } from '../_lib/types'
 import { WORKOUT_TYPES } from '../_lib/constants'
 import { formatMMSS } from '../_lib/helpers'
-import { Button, Card, IconButton, TopBar } from '../_components/primitives'
-import { ChevronLeft, Copy, Trash } from '../_components/icons'
-import { formatSeanceAsText } from '../_lib/helpers'
-import { invalidateExosCache } from '../_lib/useExos'
+import { Button, Card, IconButton, Pill, TopBar } from '../_components/primitives'
+import { Check, ChevronDown, ChevronLeft, Copy, Dumbbell, Trash } from '../_components/icons'
+import { fmtChargeLabel, formatSeanceAsText } from '../_lib/helpers'
+import { invalidateAfterSeanceMutation } from '../_lib/invalidate'
+import { useProfileHeader } from '../_lib/useProfileHeader'
 import { useToast } from '../../_components/Toast'
 
 type Props = {
@@ -24,7 +25,13 @@ type Serie = {
   rir: number
   degressive: boolean
 }
-type Exo = { id: string; nom: string; series: Serie[] }
+type Exo = {
+  id: string
+  nom: string
+  isBodyweight?: boolean
+  isUnilateral?: boolean
+  series: Serie[]
+}
 type Seance = {
   id: string
   date: string
@@ -36,11 +43,14 @@ type Seance = {
 const fmt = (n: number) => n.toLocaleString('fr-FR')
 
 export function SessionDetailScreen({ seanceId, nav }: Props) {
+  const reduced = useReducedMotion()
   const [seance, setSeance] = useState<Seance | null>(null)
   const [loading, setLoading] = useState(true)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
   const toast = useToast()
+  const profileHeader = useProfileHeader()
 
   useEffect(() => {
     if (!seanceId) {
@@ -74,7 +84,7 @@ export function SessionDetailScreen({ seanceId, nav }: Props) {
 
   const handleCopy = async () => {
     if (!seance) return
-    const text = formatSeanceAsText(seance)
+    const text = formatSeanceAsText(seance, profileHeader)
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text)
@@ -89,9 +99,13 @@ export function SessionDetailScreen({ seanceId, nav }: Props) {
         document.execCommand('copy')
         document.body.removeChild(ta)
       }
+      setCopyStatus('copied')
       toast.ok('Séance copiée.')
+      window.setTimeout(() => setCopyStatus('idle'), 2200)
     } catch {
+      setCopyStatus('error')
       toast.warn('Copie impossible.')
+      window.setTimeout(() => setCopyStatus('idle'), 2200)
     }
   }
 
@@ -107,7 +121,7 @@ export function SessionDetailScreen({ seanceId, nav }: Props) {
         setConfirmDelete(false)
         return
       }
-      invalidateExosCache()
+      invalidateAfterSeanceMutation()
       toast.ok('Séance supprimée.')
       nav('history')
     } catch (e) {
@@ -119,13 +133,24 @@ export function SessionDetailScreen({ seanceId, nav }: Props) {
 
   const type = seance ? WORKOUT_TYPES.find((t) => t.id === seance.type) : null
   const totalSeries = seance?.exos.reduce((a, e) => a + e.series.length, 0) ?? 0
-  const totalVolume = seance?.exos.reduce(
-    (a, e) => a + e.series.reduce((b, s) => b + s.poids * s.reps, 0),
-    0,
-  ) ?? 0
+  const totalVolume =
+    seance?.exos.reduce(
+      (a, e) => a + e.series.reduce((b, s) => b + s.poids * s.reps, 0),
+      0,
+    ) ?? 0
+
+  // Apparition en cascade : on indexe les blocs pour décaler leur entrée.
+  const enter = (i: number) =>
+    reduced
+      ? { initial: false as const }
+      : {
+          initial: { opacity: 0, y: 8 },
+          animate: { opacity: 1, y: 0 },
+          transition: { duration: 0.32, ease: [0.22, 1, 0.36, 1] as const, delay: 0.04 + i * 0.05 },
+        }
 
   return (
-    <div className="app-scroll" style={{ minHeight: '100%', background: 'var(--bg)' }}>
+    <div className="app-scroll" style={{ minHeight: '100%', background: 'transparent' }}>
       <TopBar
         leading={
           <IconButton
@@ -135,7 +160,11 @@ export function SessionDetailScreen({ seanceId, nav }: Props) {
           />
         }
         title={seance ? formatHeader(seance.date) : 'Séance'}
-        subtitle={seance ? `${type?.label ?? seance.type} · ${totalSeries} séries · ${fmt(totalVolume)} kg` : '…'}
+        subtitle={
+          seance
+            ? `${type?.label ?? seance.type} · ${totalSeries} séries · ${fmt(totalVolume)} kg`
+            : '…'
+        }
       />
 
       {loading && (
@@ -151,43 +180,100 @@ export function SessionDetailScreen({ seanceId, nav }: Props) {
       )}
 
       {seance && (
-        <div style={{ padding: '4px 20px 110px' }}>
-          <div
-            style={{
-              display: 'flex',
-              gap: 8,
-              padding: '10px 0 16px',
-              alignItems: 'stretch',
-            }}
+        <>
+        <div style={{ padding: '4px 16px 168px' }}>
+          {/* Hero */}
+          <motion.div
+            {...enter(0)}
+            style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}
           >
-            <Button
-              variant="secondary"
-              size="md"
-              full
-              onClick={() => nav('manual_entry', { seanceId: seance.id })}
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 14,
+                background: 'var(--accent-soft)',
+                color: 'var(--accent)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
             >
-              Modifier
-            </Button>
-            <SquareIconButton
-              icon={<Copy size={17} />}
-              label="Copier la séance"
-              onClick={handleCopy}
-            />
-            <SquareIconButton
-              icon={<Trash size={17} />}
-              label="Supprimer la séance"
-              tone="danger"
-              onClick={() => setConfirmDelete(true)}
-            />
-          </div>
+              <Dumbbell size={22} />
+            </div>
+            <div>
+              <h2
+                style={{
+                  fontSize: 26,
+                  fontWeight: 700,
+                  letterSpacing: -0.9,
+                  margin: '0 0 2px',
+                  fontFamily: 'var(--display)',
+                }}
+              >
+                {type?.label ?? seance.type}
+                <span style={{ color: 'var(--accent)' }}>.</span>
+              </h2>
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13 }}>
+                {formatLongDate(seance.date)}
+              </p>
+            </div>
+          </motion.div>
 
-          <div
+          {/* Stats */}
+          <motion.div {...enter(1)}>
+            <Card style={{ padding: 14, marginBottom: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                {[
+                  { label: 'Exos', value: String(seance.exos.length), suffix: '' },
+                  { label: 'Séries', value: String(totalSeries), suffix: '' },
+                  { label: 'Volume', value: fmt(totalVolume), suffix: 'kg' },
+                ].map((s) => (
+                  <div key={s.label} style={{ textAlign: 'center' }}>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: 'var(--muted)',
+                        fontWeight: 600,
+                        letterSpacing: 0.3,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {s.label}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: 'var(--mono)',
+                        fontSize: 20,
+                        fontWeight: 600,
+                        letterSpacing: -0.6,
+                        marginTop: 4,
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      {s.value}
+                      {s.suffix && (
+                        <span style={{ fontSize: 11, color: 'var(--subtle)', marginLeft: 2 }}>
+                          {s.suffix}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </motion.div>
+
+          {/* Repos cible */}
+          <motion.div
+            {...enter(2)}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: 10,
               padding: '10px 14px',
-              marginBottom: 12,
+              marginBottom: 16,
               background: 'var(--surface)',
               borderRadius: 10,
               boxShadow: '0 0 0 1px var(--line) inset',
@@ -200,14 +286,144 @@ export function SessionDetailScreen({ seanceId, nav }: Props) {
             <span style={{ fontFamily: 'var(--mono)', color: 'var(--ink-2)', fontWeight: 600 }}>
               {formatMMSS(seance.restTargetSec)}
             </span>
-          </div>
+          </motion.div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {/* Détail */}
+          <motion.div
+            {...enter(3)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0 2px 8px',
+            }}
+          >
+            <span
+              style={{
+                fontSize: 11,
+                color: 'var(--muted)',
+                fontWeight: 600,
+                letterSpacing: 0.4,
+                textTransform: 'uppercase',
+              }}
+            >
+              Détail
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--mono)' }}>
+              tape pour déplier
+            </span>
+          </motion.div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
             {seance.exos.map((exo, i) => (
-              <ExoBlock key={exo.id} exo={exo} index={i} />
+              <ExoCard key={exo.id} exo={exo} index={i} enter={enter(4 + i)} />
             ))}
           </div>
+
         </div>
+
+        {/* Barre d'actions collée en bas du viewport. Portalisée sur <body> :
+            le will-change:transform du StepSwitcher capture position:fixed et
+            calerait sinon la barre en bas du CONTENU, pas du viewport. */}
+        {createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 30,
+            padding: '14px 16px max(22px, env(safe-area-inset-bottom))',
+            background: 'linear-gradient(180deg, transparent, var(--bg) 35%)',
+            pointerEvents: 'none',
+          }}
+        >
+          <div
+            style={{
+              maxWidth: 480,
+              margin: '0 auto',
+              pointerEvents: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <Button size="lg" full onClick={() => nav('manual_entry', { seanceId: seance.id })}>
+              Modifier la séance
+            </Button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={handleCopy}
+                aria-label={
+                  copyStatus === 'copied'
+                    ? 'Copié'
+                    : copyStatus === 'error'
+                      ? 'Impossible de copier'
+                      : 'Copier la séance pour LLM (markdown)'
+                }
+                title={
+                  copyStatus === 'copied'
+                    ? 'Copié dans le presse-papier'
+                    : 'Copier pour LLM (markdown)'
+                }
+                style={{
+                  flex: 1,
+                  height: 48,
+                  appearance: 'none',
+                  border: 'none',
+                  borderRadius: 12,
+                  cursor: 'pointer',
+                  background: copyStatus === 'copied' ? 'var(--accent-soft)' : 'var(--surface)',
+                  color: copyStatus === 'copied' ? 'var(--accent)' : 'var(--ink-2)',
+                  boxShadow:
+                    copyStatus === 'copied'
+                      ? '0 0 0 1px var(--accent-line) inset'
+                      : '0 0 0 1px var(--line) inset',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  fontFamily: 'var(--font)',
+                  transition: 'all 160ms ease',
+                }}
+              >
+                {copyStatus === 'copied' ? <Check size={17} stroke={2.4} /> : <Copy size={17} />}
+                {copyStatus === 'copied' ? 'Copié' : 'Copier'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                aria-label="Supprimer la séance"
+                title="Supprimer la séance"
+                style={{
+                  width: 48,
+                  height: 48,
+                  flexShrink: 0,
+                  appearance: 'none',
+                  border: 'none',
+                  borderRadius: 12,
+                  cursor: 'pointer',
+                  background: 'var(--surface)',
+                  color: 'var(--danger)',
+                  boxShadow:
+                    '0 0 0 1px color-mix(in oklch, var(--danger) 28%, var(--line)) inset',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 160ms ease',
+                }}
+              >
+                <Trash size={17} />
+              </button>
+            </div>
+          </div>
+        </div>,
+          document.body,
+        )}
+        </>
       )}
 
       <AnimatePresence>
@@ -223,115 +439,167 @@ export function SessionDetailScreen({ seanceId, nav }: Props) {
   )
 }
 
-function SquareIconButton({
-  icon,
-  onClick,
-  label,
-  tone = 'neutral',
+function ExoCard({
+  exo,
+  index,
+  enter,
 }: {
-  icon: React.ReactNode
-  onClick: () => void
-  label: string
-  tone?: 'neutral' | 'danger'
+  exo: Exo
+  index: number
+  enter: Record<string, unknown>
 }) {
-  const [hover, setHover] = useState(false)
-  const isDanger = tone === 'danger'
-  const color = isDanger ? 'var(--danger)' : 'var(--ink)'
-  const ring = isDanger
-    ? 'color-mix(in oklch, var(--danger) 28%, var(--line))'
-    : 'var(--line)'
-  const hoverBg = isDanger
-    ? 'color-mix(in oklch, var(--danger) 14%, var(--surface))'
-    : 'var(--surface-2)'
-  return (
-    <button
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        width: 44,
-        height: 44,
-        flexShrink: 0,
-        borderRadius: 10,
-        border: 'none',
-        cursor: 'pointer',
-        background: hover ? hoverBg : 'var(--surface)',
-        color,
-        boxShadow: `0 0 0 1px ${ring} inset`,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        transition: 'all 140ms',
-      }}
-    >
-      {icon}
-    </button>
-  )
-}
-
-function ExoBlock({ exo, index }: { exo: Exo; index: number }) {
-  const reduced = useReducedMotion()
+  const [expanded, setExpanded] = useState(false)
   const volume = exo.series.reduce((a, s) => a + s.poids * s.reps, 0)
+  const topSet = exo.series.reduce<Serie | null>(
+    (best, s) => (!best || s.poids > best.poids ? s : best),
+    null,
+  )
+  const key = `exo-body-${exo.id}`
+
   return (
-    <motion.div
-      initial={reduced ? false : { opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: reduced ? 0 : 0.04 + index * 0.04, duration: 0.3 }}
-    >
-      <Card style={{ padding: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{exo.nom}</span>
-          <span
+    <motion.div {...enter}>
+      <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-controls={key}
+          style={{
+            width: '100%',
+            appearance: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '12px 14px',
+            background: 'var(--line-2)',
+            color: 'inherit',
+            textAlign: 'left',
+          }}
+        >
+          <div
             style={{
-              flex: 1,
-              fontSize: 11,
-              color: 'var(--subtle)',
+              width: 24,
+              height: 24,
+              borderRadius: 7,
+              background: 'var(--surface)',
+              color: 'var(--ink-2)',
+              boxShadow: '0 0 0 1px var(--line) inset',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               fontFamily: 'var(--mono)',
-              textAlign: 'right',
+              fontSize: 11,
+              fontWeight: 600,
+              flexShrink: 0,
             }}
           >
-            {exo.series.length} séries · {fmt(volume)} kg
-          </span>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {exo.series.map((s, i) => (
-            <div
-              key={s.id}
-              style={{
-                display: 'flex',
-                alignItems: 'baseline',
-                gap: 10,
-                padding: '6px 0',
-                borderTop: i === 0 ? 'none' : '1px solid var(--line-2)',
-                fontFamily: 'var(--mono)',
-                fontSize: 12,
-                fontVariantNumeric: 'tabular-nums',
-              }}
-            >
-              <span style={{ width: 18, color: 'var(--subtle)' }}>{i + 1}.</span>
-              <span style={{ color: 'var(--ink)', fontWeight: 600 }}>
-                {fmtPoids(s.poids)} kg × {s.reps}
+            {index + 1}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'var(--ink)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {exo.nom}
               </span>
-              <span style={{ color: 'var(--muted)' }}>RIR {s.rir}</span>
-              {s.degressive && (
-                <span
-                  style={{
-                    fontSize: 10,
-                    padding: '1px 6px',
-                    borderRadius: 4,
-                    background: 'var(--accent-soft)',
-                    color: 'var(--accent)',
-                    fontFamily: 'var(--font)',
-                  }}
-                >
-                  dégr
-                </span>
-              )}
+              {exo.isBodyweight && <Pill tone="accent">PDC</Pill>}
+              {exo.isUnilateral && <Pill tone="neutral">uni</Pill>}
             </div>
-          ))}
-        </div>
+            {!expanded && (
+              <div
+                style={{
+                  fontSize: 11,
+                  color: 'var(--muted)',
+                  fontFamily: 'var(--mono)',
+                  marginTop: 2,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {exo.series.length} série{exo.series.length > 1 ? 's' : ''}
+                {topSet && (
+                  <>
+                    <span style={{ color: 'var(--subtle)' }}> · top </span>
+                    {fmtChargeLabel(topSet.poids, exo.isBodyweight)}×{topSet.reps}
+                    <span style={{ color: 'var(--subtle)' }}> · vol </span>
+                    {fmt(volume)}kg
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          <span
+            aria-hidden
+            style={{
+              display: 'inline-flex',
+              color: 'var(--muted)',
+              transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 200ms ease',
+              flexShrink: 0,
+            }}
+          >
+            <ChevronDown size={16} />
+          </span>
+        </button>
+
+        <AnimatePresence initial={false}>
+          {expanded && (
+            <motion.div
+              id={key}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+              style={{ overflow: 'hidden' }}
+            >
+              <div style={{ padding: '4px 14px 10px' }}>
+                {exo.series.map((s, i) => (
+                  <div
+                    key={s.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      gap: 10,
+                      padding: '6px 0',
+                      borderTop: i === 0 ? 'none' : '1px solid var(--line-2)',
+                      fontFamily: 'var(--mono)',
+                      fontSize: 12,
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    <span style={{ width: 18, color: 'var(--subtle)' }}>{i + 1}.</span>
+                    <span style={{ color: 'var(--ink)', fontWeight: 600 }}>
+                      {fmtChargeLabel(s.poids, exo.isBodyweight)} × {s.reps}
+                    </span>
+                    <span style={{ color: 'var(--muted)' }}>RIR {s.rir}</span>
+                    {s.degressive && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                          background: 'var(--accent-soft)',
+                          color: 'var(--accent)',
+                          fontFamily: 'var(--font)',
+                        }}
+                      >
+                        dégr
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </Card>
     </motion.div>
   )
@@ -438,6 +706,14 @@ function formatHeader(iso: string): string {
     .replace('.', '')
 }
 
-function fmtPoids(n: number): string {
-  return (Number.isInteger(n) ? String(n) : n.toFixed(1)).replace('.', ',')
+function formatLongDate(iso: string): string {
+  const d = new Date(iso + 'T00:00:00')
+  return new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+    .format(d)
+    .replace(/^./, (c) => c.toUpperCase())
 }

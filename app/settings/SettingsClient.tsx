@@ -5,6 +5,7 @@ import { usePrefs } from '../seance/_lib/prefs'
 import { playRestEndAlert, unlockAudio } from '../seance/_lib/restAlert'
 import { Toggle } from '../seance/_components/primitives'
 import { ChevronRight } from '../seance/_components/icons'
+import ProfileSettings from './ProfileSettings'
 
 export default function SettingsClient() {
   const [prefs, setPrefs] = usePrefs()
@@ -27,7 +28,7 @@ export default function SettingsClient() {
     >
       <header style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
         <Link
-          href="/"
+          href="/seance"
           aria-label="retour"
           style={{
             width: 36,
@@ -59,7 +60,7 @@ export default function SettingsClient() {
             Réglages
           </h1>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-            Préférences locales — conservées sur cet appareil.
+            Profil synchronisé · préférences de repos sur cet appareil.
           </div>
         </div>
       </header>
@@ -111,6 +112,8 @@ export default function SettingsClient() {
           </div>
         </div>
       </section>
+
+      <ProfileSettings />
     </main>
   )
 }

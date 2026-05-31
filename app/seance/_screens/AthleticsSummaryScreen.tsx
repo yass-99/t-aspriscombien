@@ -20,6 +20,7 @@ import {
   Timer,
 } from '../_components/icons'
 import { useToast } from '../../_components/Toast'
+import { useProfileHeader } from '../_lib/useProfileHeader'
 
 type Props = {
   // IDs des runs qui forment la séance. Si vide → fallback message + retour.
@@ -36,6 +37,7 @@ export function AthleticsSummaryScreen({ runIds, origin = 'live', nav }: Props) 
   const [loading, setLoading] = useState(true)
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
   const toast = useToast()
+  const profileHeader = useProfileHeader()
 
   useEffect(() => {
     let cancelled = false
@@ -120,6 +122,7 @@ export function AthleticsSummaryScreen({ runIds, origin = 'live', nav }: Props) 
       startedAt: meta.startedAt,
       endedAt: meta.endedAt,
       runsWithPR,
+      profile: profileHeader,
     })
     try {
       if (navigator.clipboard?.writeText) {
@@ -148,7 +151,7 @@ export function AthleticsSummaryScreen({ runIds, origin = 'live', nav }: Props) 
 
   if (loading) {
     return (
-      <div className="app-scroll" style={{ minHeight: '100%', background: 'var(--bg)' }}>
+      <div className="app-scroll" style={{ minHeight: '100%', background: 'transparent' }}>
         <TopBar
           leading={<IconButton icon={<ChevronLeft size={18} />} label="retour" onClick={back} />}
           title="Récap séance"
@@ -163,7 +166,7 @@ export function AthleticsSummaryScreen({ runIds, origin = 'live', nav }: Props) 
 
   if (!meta || sessionRuns.length === 0) {
     return (
-      <div className="app-scroll" style={{ minHeight: '100%', background: 'var(--bg)' }}>
+      <div className="app-scroll" style={{ minHeight: '100%', background: 'transparent' }}>
         <TopBar
           leading={<IconButton icon={<ChevronLeft size={18} />} label="retour" onClick={back} />}
           title="Récap séance"
@@ -180,7 +183,7 @@ export function AthleticsSummaryScreen({ runIds, origin = 'live', nav }: Props) 
   }
 
   return (
-    <div className="app-scroll" style={{ minHeight: '100%', background: 'var(--bg)' }}>
+    <div className="app-scroll" style={{ minHeight: '100%', background: 'transparent' }}>
       <TopBar
         leading={<IconButton icon={<ChevronLeft size={18} />} label="retour" onClick={back} />}
         title="Séance athlétisme"
@@ -195,8 +198,8 @@ export function AthleticsSummaryScreen({ runIds, origin = 'live', nav }: Props) 
               width: 48,
               height: 48,
               borderRadius: 14,
-              background: 'var(--accent-soft)',
-              color: 'var(--accent)',
+              background: 'color-mix(in oklch, var(--warn) 14%, var(--bg))',
+              color: 'var(--warn)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -217,11 +220,11 @@ export function AthleticsSummaryScreen({ runIds, origin = 'live', nav }: Props) 
             >
               {stats.newPRs > 0 ? (
                 <>
-                  Nouveau record<span style={{ color: 'var(--accent)' }}>.</span>
+                  Nouveau record<span style={{ color: 'var(--warn)' }}>.</span>
                 </>
               ) : (
                 <>
-                  Belle séance<span style={{ color: 'var(--accent)' }}>.</span>
+                  Belle séance<span style={{ color: 'var(--warn)' }}>.</span>
                 </>
               )}
             </h2>
@@ -240,7 +243,7 @@ export function AthleticsSummaryScreen({ runIds, origin = 'live', nav }: Props) 
             <StatCell
               label="Meilleur %"
               value={stats.bestPct != null ? formatPct(stats.bestPct) : '—'}
-              accent={stats.bestPct != null && stats.bestPct >= 100}
+              highlight={stats.bestPct != null && stats.bestPct >= 100}
             />
           </div>
         </Card>
@@ -307,7 +310,7 @@ export function AthleticsSummaryScreen({ runIds, origin = 'live', nav }: Props) 
               color: copyStatus === 'copied' ? 'var(--accent)' : 'var(--ink-2)',
               boxShadow:
                 copyStatus === 'copied'
-                  ? '0 0 0 1px var(--accent-line) inset'
+                  ? '0 0 0 1px var(--brand-line) inset'
                   : '0 0 0 1px var(--line) inset',
               display: 'inline-flex',
               alignItems: 'center',
@@ -350,11 +353,11 @@ export function AthleticsSummaryScreen({ runIds, origin = 'live', nav }: Props) 
 function StatCell({
   label,
   value,
-  accent = false,
+  highlight = false,
 }: {
   label: string
   value: string
-  accent?: boolean
+  highlight?: boolean
 }) {
   return (
     <div style={{ textAlign: 'center' }}>
@@ -376,7 +379,7 @@ function StatCell({
           fontWeight: 600,
           letterSpacing: -0.5,
           marginTop: 4,
-          color: accent ? 'var(--accent)' : 'var(--ink)',
+          color: highlight ? 'var(--warn)' : 'var(--ink)',
           fontVariantNumeric: 'tabular-nums',
         }}
       >
@@ -412,7 +415,7 @@ function RunRow({
             ? 'ink'
             : 'subtle'
   const pctColor = {
-    accent: 'var(--accent)',
+    accent: 'var(--warn)',
     ok: 'var(--ok)',
     ink: 'var(--ink-2)',
     subtle: 'var(--subtle)',
@@ -433,8 +436,8 @@ function RunRow({
           width: 36,
           height: 36,
           borderRadius: 9,
-          background: isNewPR ? 'var(--accent-soft)' : 'var(--surface-2)',
-          color: isNewPR ? 'var(--accent)' : 'var(--muted)',
+          background: isNewPR ? 'color-mix(in oklch, var(--warn) 14%, var(--bg))' : 'var(--surface-2)',
+          color: isNewPR ? 'var(--warn)' : 'var(--muted)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -468,7 +471,7 @@ function RunRow({
             </span>
           )}
           {isNewPR && (
-            <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 700, letterSpacing: 0.4 }}>
+            <span style={{ fontSize: 10, color: 'var(--warn)', fontWeight: 700, letterSpacing: 0.4 }}>
               NEW PR · {run.distance_m}m
             </span>
           )}

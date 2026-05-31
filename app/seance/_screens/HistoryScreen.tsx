@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import type { NavFn, Run } from '../_lib/types'
 import { WORKOUT_TYPES } from '../_lib/constants'
@@ -9,29 +9,21 @@ import {
   ChevronLeft,
   ChevronRight,
   Dumbbell,
-  Flame,
   Plus,
   Timer,
   Trash,
 } from '../_components/icons'
 import { useToast } from '../../_components/Toast'
-import {
-  formatChrono,
-  formatRunTime,
-  formatSessionDuration,
-  groupRunsIntoSessions,
-} from '../_lib/runs'
+import { formatChrono, groupRunsIntoSessions } from '../_lib/runs'
+import { Skeleton, SkeletonHistoryRow } from '../_components/Skeleton'
+import { useSeancesSummary, type SeanceSummary } from '../_lib/useSeancesSummary'
+import { useRuns, invalidateRuns } from '../_lib/useRuns'
+import { invalidateHomeDashboard } from '../_lib/useHomeDashboard'
+import { invalidateAfterSeanceMutation } from '../_lib/invalidate'
 
 type Props = { nav: NavFn }
 
-type SeanceListItem = {
-  id: string
-  date: string
-  type: string
-  exosCount: number
-  seriesCount: number
-  volume: number
-}
+type SeanceListItem = SeanceSummary
 
 type AthleticsListItem = {
   kind: 'athletics'
@@ -50,41 +42,16 @@ type HistoryEntry = SeanceEntry | AthleticsListItem
 const fmt = (n: number) => n.toLocaleString('fr-FR')
 
 export function HistoryScreen({ nav }: Props) {
-  const [seances, setSeances] = useState<SeanceListItem[] | null>(null)
-  const [runs, setRuns] = useState<Run[] | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [editMode, setEditMode] = useState(false)
+  // Caches SWR partagés : la liste résumée et les runs ne sont refetchés que si
+  // le cache est périmé (TTL 3 min) ou invalidé après une mutation.
+  const { data: seances, loading: sLoading } = useSeancesSummary()
+  const { runs: runsData, loading: rLoading } = useRuns()
+  const runs = runsData
+  const loading = sLoading || rLoading
+
   const [pendingDelete, setPendingDelete] = useState<HistoryEntry | null>(null)
   const [deleting, setDeleting] = useState(false)
   const toast = useToast()
-
-  const fetchAll = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [sRes, rRes] = await Promise.all([fetch('/api/seances'), fetch('/api/runs')])
-      if (!sRes.ok) {
-        const e = await sRes.json().catch(() => ({}))
-        toast.error(e.error ?? `Erreur ${sRes.status}`)
-      } else {
-        const d = (await sRes.json()) as { seances: SeanceListItem[] }
-        setSeances(d.seances)
-      }
-      if (rRes.ok) {
-        const d = (await rRes.json()) as { runs: Run[] }
-        setRuns(d.runs)
-      } else {
-        setRuns([])
-      }
-    } catch (e) {
-      toast.warn(e instanceof Error ? e.message : 'Erreur réseau')
-    } finally {
-      setLoading(false)
-    }
-  }, [toast])
-
-  useEffect(() => {
-    fetchAll()
-  }, [fetchAll])
 
   const confirmDelete = async () => {
     if (!pendingDelete || deleting) return
@@ -96,6 +63,8 @@ export function HistoryScreen({ nav }: Props) {
           const e = await res.json().catch(() => ({}))
           throw new Error(e.error ?? `Erreur ${res.status}`)
         }
+        // Supprimer une séance impacte l'historique, l'accueil, les stats et les exos.
+        invalidateAfterSeanceMutation()
       } else {
         // Session athlé = N runs : on les supprime un par un.
         for (const runId of pendingDelete.runIds) {
@@ -105,10 +74,11 @@ export function HistoryScreen({ nav }: Props) {
             throw new Error(e.error ?? `Erreur ${res.status}`)
           }
         }
+        invalidateRuns()
+        invalidateHomeDashboard()
       }
       toast.ok('Séance supprimée.')
       setPendingDelete(null)
-      await fetchAll()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erreur suppression')
     } finally {
@@ -141,13 +111,56 @@ export function HistoryScreen({ nav }: Props) {
     return list
   }, [seances, runs])
 
-  const grouped = useMemo(() => groupByMonth(entries), [entries])
   const totalCount = entries.length
   const seancesCount = seances?.length ?? 0
   const athleticsCount = entries.filter((e) => e.kind === 'athletics').length
 
+  // Rendu progressif : on n'affiche que les `visibleCount` entrées les plus
+  // récentes et on en révèle PAGE de plus dès qu'un capteur arrive en bas. La
+  // liste résumée est déjà chargée en un appel léger (cf P1) → aucun appel DB
+  // supplémentaire au scroll, juste du rendu.
+  const PAGE = 15
+  const [visibleCount, setVisibleCount] = useState(PAGE)
+  const hasMore = visibleCount < totalCount
+
+  const visibleEntries = useMemo(() => entries.slice(0, visibleCount), [entries, visibleCount])
+  const grouped = useMemo(() => groupByMonth(visibleEntries), [visibleEntries])
+
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!hasMore) return
+    const el = sentinelRef.current
+    if (!el) return
+    const io = new IntersectionObserver(
+      (obs) => {
+        if (obs[0]?.isIntersecting) setVisibleCount((c) => c + PAGE)
+      },
+      { rootMargin: '300px' }, // précharge avant d'atteindre le tout dernier pixel
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [hasMore])
+
   return (
-    <div className="app-scroll" style={{ minHeight: '100%', background: 'var(--bg)' }}>
+    <div
+      className="app-scroll"
+      style={{ minHeight: '100%', background: 'transparent', position: 'relative' }}
+    >
+      {/* Halo violet propre à l'historique : il défile AVEC la liste (l'ambient
+          global est fixé au viewport et s'efface dès qu'on scrolle). C'est cette
+          matière que le verre dépoli des lignes vient réfracter. cf. DESIGN §4. */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 0,
+          pointerEvents: 'none',
+          background:
+            'radial-gradient(68% 22% at 50% 0%, color-mix(in oklch, var(--brand) 22%, transparent) 0%, transparent 70%), radial-gradient(54% 16% at 10% 26%, color-mix(in oklch, var(--brand) 15%, transparent) 0%, transparent 72%), radial-gradient(56% 17% at 92% 54%, color-mix(in oklch, var(--brand-deep, var(--brand)) 17%, transparent) 0%, transparent 72%), radial-gradient(58% 18% at 26% 84%, color-mix(in oklch, var(--brand) 12%, transparent) 0%, transparent 74%)',
+        }}
+      />
+      <div style={{ position: 'relative', zIndex: 1 }}>
       <TopBar
         leading={
           <IconButton icon={<ChevronLeft size={18} />} label="retour" onClick={() => nav('idle')} />
@@ -160,11 +173,7 @@ export function HistoryScreen({ nav }: Props) {
               ? `${seancesCount} muscu · ${athleticsCount} athlé`
               : `${totalCount} séance${totalCount > 1 ? 's' : ''}`
         }
-        trailing={
-          !loading && totalCount > 0 ? (
-            <EditToggle editMode={editMode} onToggle={() => setEditMode((v) => !v)} />
-          ) : null
-        }
+       
       />
 
       <div style={{ padding: '4px 20px 30px' }}>
@@ -180,13 +189,13 @@ export function HistoryScreen({ nav }: Props) {
             borderRadius: 12,
             border: 'none',
             cursor: 'pointer',
-            background: 'var(--accent)',
-            color: 'var(--accent-ink)',
+            background: 'var(--brand)',
+            color: 'var(--brand-ink)',
             fontWeight: 700,
             fontSize: 14,
             fontFamily: 'var(--font)',
             letterSpacing: -0.1,
-            boxShadow: '0 10px 24px -10px color-mix(in oklch, var(--accent) 50%, transparent)',
+            boxShadow: '0 10px 24px -10px color-mix(in oklch, var(--brand) 50%, transparent)',
             marginTop: 10,
             marginBottom: 22,
           }}
@@ -195,29 +204,16 @@ export function HistoryScreen({ nav }: Props) {
           Nouvelle séance manuelle
         </button>
 
-        {/* Légende : indique au premier regard les deux types — la barre verticale
-            colorée gauche de chaque carte reprend exactement ces tons. */}
-        {!loading && totalCount > 0 && (
-          <div
-            style={{
-              display: 'flex',
-              gap: 14,
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '2px 4px 16px',
-              fontSize: 11,
-              color: 'var(--muted)',
-              fontFamily: 'var(--mono)',
-            }}
-          >
-            <LegendDot tone="muscu" label="muscu" />
-            <LegendDot tone="athletics" label="athlé" />
-          </div>
-        )}
-
+        {/* Chargement : silhouettes de lignes (chrome de la liste déjà en place),
+            puis les vraies séances se substituent en cinématique (cf. MonthGroup). */}
         {loading && (
-          <div style={{ padding: 18, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-            Chargement…
+          <div>
+            <Skeleton width={96} height={11} style={{ marginBottom: 8, marginLeft: 2 }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <SkeletonHistoryRow key={i} />
+              ))}
+            </div>
           </div>
         )}
 
@@ -226,7 +222,7 @@ export function HistoryScreen({ nav }: Props) {
             <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', lineHeight: 1.5 }}>
               Aucune séance enregistrée.
               <br />
-              <span style={{ color: 'var(--accent)', fontWeight: 600 }}>
+              <span style={{ color: 'var(--brand-bright)', fontWeight: 600 }}>
                 Lance ta première séance ou ajoute-en une manuellement.
               </span>
             </div>
@@ -239,10 +235,19 @@ export function HistoryScreen({ nav }: Props) {
             group={g}
             index={gi}
             nav={nav}
-            editMode={editMode}
+
             onRequestDelete={setPendingDelete}
           />
         ))}
+
+        {/* Capteur de fin de liste : déclenche le chargement de la tranche
+            suivante. Une silhouette signale qu'il reste des séances à venir. */}
+        {hasMore && (
+          <div ref={sentinelRef} style={{ marginTop: 8 }}>
+            <SkeletonHistoryRow />
+          </div>
+        )}
+      </div>
       </div>
 
       <ConfirmDialog
@@ -254,6 +259,7 @@ export function HistoryScreen({ nav }: Props) {
             : 'La suppression est définitive et retire tous les exercices et séries associés.'
         }
         confirmLabel="Supprimer"
+        busyLabel="Suppression…"
         tone="danger"
         busy={deleting}
         onConfirm={confirmDelete}
@@ -265,73 +271,19 @@ export function HistoryScreen({ nav }: Props) {
   )
 }
 
-function EditToggle({
-  editMode,
-  onToggle,
-}: {
-  editMode: boolean
-  onToggle: () => void
-}) {
-  const [hover, setHover] = useState(false)
-  return (
-    <button
-      onClick={onToggle}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        appearance: 'none',
-        height: 32,
-        padding: '0 12px',
-        borderRadius: 999,
-        border: 'none',
-        cursor: 'pointer',
-        background: hover ? 'var(--surface-2)' : 'transparent',
-        color: editMode ? 'var(--accent)' : 'var(--ink-2)',
-        boxShadow: editMode
-          ? '0 0 0 1px var(--accent-line) inset'
-          : '0 0 0 1px var(--line) inset',
-        fontFamily: 'var(--font)',
-        fontSize: 12,
-        fontWeight: 600,
-        transition: 'all 140ms',
-        flexShrink: 0,
-      }}
-    >
-      {editMode ? 'Terminé' : 'Modifier'}
-    </button>
-  )
-}
 
-function LegendDot({ tone, label }: { tone: 'muscu' | 'athletics'; label: string }) {
-  const color = tone === 'muscu' ? 'var(--accent)' : 'var(--warn)'
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <span
-        aria-hidden
-        style={{
-          width: 3,
-          height: 14,
-          borderRadius: 2,
-          background: color,
-          display: 'inline-block',
-        }}
-      />
-      {label}
-    </span>
-  )
-}
 
 function MonthGroup({
   group,
   index,
   nav,
-  editMode,
+
   onRequestDelete,
 }: {
   group: { key: string; label: string; items: HistoryEntry[] }
   index: number
   nav: NavFn
-  editMode: boolean
+
   onRequestDelete: (entry: HistoryEntry) => void
 }) {
   const reduced = useReducedMotion()
@@ -363,7 +315,7 @@ function MonthGroup({
               session={entry}
               index={i}
               nav={nav}
-              editMode={editMode}
+
               onDelete={() => onRequestDelete(entry)}
             />
           ) : (
@@ -372,7 +324,7 @@ function MonthGroup({
               seance={entry}
               index={i}
               nav={nav}
-              editMode={editMode}
+
               onDelete={() => onRequestDelete(entry)}
             />
           ),
@@ -421,13 +373,13 @@ function SeanceRow({
   seance,
   index,
   nav,
-  editMode,
+
   onDelete,
 }: {
   seance: SeanceEntry
   index: number
   nav: NavFn
-  editMode: boolean
+
   onDelete: () => void
 }) {
   const reduced = useReducedMotion()
@@ -437,9 +389,8 @@ function SeanceRow({
       initial={reduced ? false : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: reduced ? 0 : 0.04 + index * 0.03, duration: 0.28 }}
-      whileTap={reduced || editMode ? undefined : { scale: 0.985 }}
-      onClick={
-        editMode ? undefined : () => nav('session_detail', { seanceId: seance.id })
+      whileTap={ { scale: 0.985 }}
+      onClick={ () => nav('session_detail', { seanceId: seance.id })
       }
       style={{
         appearance: 'none',
@@ -449,59 +400,44 @@ function SeanceRow({
         alignItems: 'center',
         gap: 12,
         padding: '14px 14px 14px 17px',
-        borderRadius: 12,
+        borderRadius: 'var(--radius-md)',
         border: 'none',
-        background: 'var(--surface)',
-        // Barre verticale gauche = code couleur du type (accent vert pour muscu)
-        // → repérable au scroll sans alourdir la grille visuelle.
-        boxShadow: '0 0 0 1px var(--line) inset, inset 3px 0 0 0 var(--accent)',
-        cursor: editMode ? 'default' : 'pointer',
+        // Verre dépoli : floute les halos violets du fond (DESIGN §4) plutôt
+        // qu'un --surface plat. Highlight haut + ring glass pour l'élévation.
+        background: 'var(--glass-strong)',
+        backdropFilter: 'blur(22px) saturate(1.5)',
+        WebkitBackdropFilter: 'blur(22px) saturate(1.5)',
+        boxShadow: '0 0 0 1px var(--glass-border) inset, 0 1px 0 0 var(--glass-highlight) inset',
+        cursor: 'default',
         fontFamily: 'var(--font)',
       }}
     >
       <div
         style={{
-          width: 38,
-          height: 38,
-          borderRadius: 10,
-          background: 'var(--accent-soft)',
+          width: 42,
+          height: 42,
+          borderRadius: 11,
+          // Pas de tuile teintée : l'icône seule, en couleur, posée sur le fond.
+          background: 'transparent',
           color: 'var(--accent)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontFamily: 'var(--mono)',
-          fontSize: 13,
-          fontWeight: 600,
           flexShrink: 0,
         }}
       >
-        {type?.emoji ?? <Dumbbell size={16} />}
+        <Dumbbell size={20} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>
-            {formatRowDate(seance.date)}
-          </span>
-          <span style={{ fontSize: 11, color: 'var(--muted)' }}>· {type?.label ?? seance.type}</span>
+        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', letterSpacing: -0.2 }}>
+          {type?.label ?? seance.type}
         </div>
-        <div
-          style={{
-            fontSize: 11,
-            color: 'var(--subtle)',
-            fontFamily: 'var(--mono)',
-            marginTop: 2,
-            fontVariantNumeric: 'tabular-nums',
-          }}
-        >
-          {seance.exosCount} exo{seance.exosCount > 1 ? 's' : ''} · {seance.seriesCount} série
-          {seance.seriesCount > 1 ? 's' : ''} · {fmt(seance.volume)} kg
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+          {formatRowDate(seance.date)} · {seance.exosCount} exercice
+          {seance.exosCount > 1 ? 's' : ''} · {fmt(seance.volume)} kg
         </div>
       </div>
-      {editMode ? (
-        <DeleteAction onClick={onDelete} />
-      ) : (
-        <ChevronRight size={16} color="var(--subtle)" />
-      )}
+
     </motion.button>
   )
 }
@@ -510,20 +446,17 @@ function AthleticsRow({
   session,
   index,
   nav,
-  editMode,
+
   onDelete,
 }: {
   session: AthleticsListItem
   index: number
   nav: NavFn
-  editMode: boolean
+
   onDelete: () => void
 }) {
   const reduced = useReducedMotion()
   const runCount = session.runs.length
-  const distances = Array.from(new Set(session.runs.map((r) => r.distance_m))).sort(
-    (a, b) => a - b,
-  )
   const best = session.runs.reduce<Run | null>(
     (b, r) => (!b || r.duration_ms < b.duration_ms ? r : b),
     null,
@@ -533,11 +466,8 @@ function AthleticsRow({
       initial={reduced ? false : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: reduced ? 0 : 0.04 + index * 0.03, duration: 0.28 }}
-      whileTap={reduced || editMode ? undefined : { scale: 0.985 }}
-      onClick={
-        editMode
-          ? undefined
-          : () => nav('athletics_summary', { athleticsRunIds: session.runIds })
+      whileTap={reduced ? undefined : { scale: 0.985 }}
+      onClick={() => nav('athletics_detail', { athleticsRunIds: session.runIds })
       }
       style={{
         appearance: 'none',
@@ -547,23 +477,25 @@ function AthleticsRow({
         alignItems: 'center',
         gap: 12,
         padding: '14px 14px 14px 17px',
-        borderRadius: 12,
+        borderRadius: 'var(--radius-md)',
         border: 'none',
-        // Fond très légèrement teinté + barre verticale ambre → contraste muscu/athlé
-        // immédiat sans casser la cohérence de la liste (même radius, même densité).
-        background: 'color-mix(in oklch, var(--warn) 5%, var(--surface))',
-        boxShadow:
-          '0 0 0 1px color-mix(in oklch, var(--warn) 24%, var(--line)) inset, inset 3px 0 0 0 var(--warn)',
-        cursor: editMode ? 'default' : 'pointer',
+        // Verre dépoli : floute les halos violets du fond (DESIGN §4) plutôt
+        // qu'un --surface plat. Highlight haut + ring glass pour l'élévation.
+        background: 'var(--glass-strong)',
+        backdropFilter: 'blur(22px) saturate(1.5)',
+        WebkitBackdropFilter: 'blur(22px) saturate(1.5)',
+        boxShadow: '0 0 0 1px var(--glass-border) inset, 0 1px 0 0 var(--glass-highlight) inset',
+        cursor: 'default',
         fontFamily: 'var(--font)',
       }}
     >
       <div
         style={{
-          width: 38,
-          height: 38,
-          borderRadius: 10,
-          background: 'color-mix(in oklch, var(--warn) 20%, var(--surface))',
+          width: 42,
+          height: 42,
+          borderRadius: 11,
+          // Pas de tuile teintée : l'icône seule, en couleur, posée sur le fond.
+          background: 'transparent',
           color: 'var(--warn)',
           display: 'flex',
           alignItems: 'center',
@@ -571,50 +503,18 @@ function AthleticsRow({
           flexShrink: 0,
         }}
       >
-        <Timer size={18} />
+        <Timer size={20} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>
-            {formatRowDate(session.date)}
-          </span>
-          <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-            · Athlétisme · {formatRunTime(session.startedAt)}
-          </span>
+        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', letterSpacing: -0.2 }}>
+          Sprint
         </div>
-        <div
-          style={{
-            fontSize: 11,
-            color: 'var(--subtle)',
-            fontFamily: 'var(--mono)',
-            marginTop: 2,
-            fontVariantNumeric: 'tabular-nums',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            flexWrap: 'wrap',
-          }}
-        >
-          <span>
-            {runCount} chrono{runCount > 1 ? 's' : ''} · {distances.map((d) => `${d}m`).join(', ')}
-          </span>
-          {best && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-              <span style={{ color: 'var(--subtle)' }}>· top </span>
-              <Flame size={9} color="var(--warn)" />
-              {formatChrono(best.duration_ms)} ({best.distance_m}m)
-            </span>
-          )}
-          <span style={{ color: 'var(--subtle)' }}>
-            · {formatSessionDuration(session.startedAt, session.endedAt)}
-          </span>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+          {formatRowDate(session.date)} · {runCount} sprint{runCount > 1 ? 's' : ''}
+          {best ? ` · top ${formatChrono(best.duration_ms)}` : ''}
         </div>
       </div>
-      {editMode ? (
-        <DeleteAction onClick={onDelete} />
-      ) : (
-        <ChevronRight size={16} color="var(--subtle)" />
-      )}
+
     </motion.button>
   )
 }

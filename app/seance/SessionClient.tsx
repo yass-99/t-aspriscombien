@@ -1,8 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { NavContext, SessionState, WorkoutStep } from './_lib/types'
 import { StepSwitcher } from './_components/StepSwitcher'
+import { AmbientBackground } from './_components/AmbientBackground'
+import { OnboardingProfileModal } from './_components/OnboardingProfileModal'
+import { useProfile } from './_lib/useProfile'
+import { useOnboardingDismiss, dismissOnboarding } from './_lib/useOnboardingDismiss'
 import { IdleScreen } from './_screens/IdleScreen'
 import { ConfigScreen } from './_screens/ConfigScreen'
 import { ExerciseSelectScreen } from './_screens/ExerciseSelectScreen'
@@ -14,6 +18,7 @@ import { SessionDetailScreen } from './_screens/SessionDetailScreen'
 import { ManualEntryScreen } from './_screens/ManualEntryScreen'
 import { AthleticsScreen } from './_screens/AthleticsScreen'
 import { AthleticsSummaryScreen } from './_screens/AthleticsSummaryScreen'
+import { AthleticsDetailScreen } from './_screens/athletisme_detail'
 
 const DEFAULT_REST = 90
 
@@ -40,12 +45,46 @@ export default function SessionClient() {
   const [athleticsInitialDistance, setAthleticsInitialDistance] = useState<number | null>(null)
   const [athleticsRunIds, setAthleticsRunIds] = useState<string[]>([])
   const [athleticsSummaryOrigin, setAthleticsSummaryOrigin] = useState<'live' | 'history'>('live')
+  // Sous-étape d'ouverture du ConfigScreen (type par défaut, chrono au retour
+  // depuis exercise_select).
+  const [configInitialStep, setConfigInitialStep] = useState<'type' | 'chrono'>('type')
+
+  // Deep-link : /seance?screen=stats ouvre directement les stats (lien depuis Réglages).
+  // Lu après le montage pour éviter un mismatch d'hydratation (window indisponible en SSR).
+  useEffect(() => {
+    const target = new URLSearchParams(window.location.search).get('screen')
+    if (target === 'stats') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setStep('stats')
+      // Nettoie l'URL pour que le retour navigateur ne ré-ouvre pas les stats.
+      window.history.replaceState(null, '', '/seance')
+    }
+  }, [])
+
+  const { profile, loading: profileLoading } = useProfile()
+  const onboardingDismissed = useOnboardingDismiss()
+  // useProfile() hydrate son state depuis localStorage côté client uniquement :
+  // sans ce flag mounted, le modal apparaîtrait dès le premier render client
+  // (cache déjà chaud) alors que le SSR aurait rendu loading=true → mismatch.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMounted(true)
+  }, [])
+  const needsOnboarding =
+    mounted &&
+    !profileLoading &&
+    (profile === null ||
+      profile.sexe === null ||
+      profile.tailleCm === null ||
+      profile.birthDate === null)
 
   const resetSession = () => setSession(initialSession())
   const nav = (s: WorkoutStep, ctx?: NavContext) => {
     if (ctx && 'seanceId' in ctx) setSelectedSeanceId(ctx.seanceId ?? null)
     // Distance pré-sélectionnée : null par défaut → ChronoView utilise la dernière utilisée.
     setAthleticsInitialDistance(ctx?.athleticsDistance ?? null)
+    setConfigInitialStep(ctx?.configStep ?? 'type')
     if (ctx?.athleticsRunIds) {
       setAthleticsRunIds(ctx.athleticsRunIds)
       // Provenance déduite de l'écran qui déclenche : history → 'history', sinon 'live'.
@@ -65,10 +104,17 @@ export default function SessionClient() {
         paddingTop: 'env(safe-area-inset-top, 0px)',
       }}
     >
-      <StepSwitcher step={step}>
+      <AmbientBackground />
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        <StepSwitcher step={step}>
         {step === 'idle' && <IdleScreen session={session} nav={nav} />}
         {step === 'config' && (
-          <ConfigScreen session={session} setSession={setSession} nav={nav} />
+          <ConfigScreen
+            session={session}
+            setSession={setSession}
+            nav={nav}
+            initialStep={configInitialStep}
+          />
         )}
         {step === 'exercise_select' && (
           <ExerciseSelectScreen session={session} setSession={setSession} nav={nav} />
@@ -102,7 +148,17 @@ export default function SessionClient() {
             nav={nav}
           />
         )}
-      </StepSwitcher>
+        {step === 'athletics_detail' && (
+          <AthleticsDetailScreen runIds={athleticsRunIds} nav={nav} />
+        )}
+        </StepSwitcher>
+      </div>
+      {needsOnboarding && !onboardingDismissed && (
+        <OnboardingProfileModal
+          profile={profile}
+          onDismiss={() => dismissOnboarding()}
+        />
+      )}
     </div>
   )
 }

@@ -4,8 +4,8 @@
 //   - assets statiques (_next/static, fonts, /icon*) → cache-first
 //   - HTML / autres → network-first avec fallback cache
 
-const CACHE_VERSION = 'tpc-v1'
-const RUNTIME = 'tpc-runtime'
+const CACHE_VERSION = 'tpc-v3'
+const RUNTIME = 'tpc-runtime-v3'
 const PRECACHE_URLS = ['/']
 
 self.addEventListener('install', (event) => {
@@ -33,7 +33,6 @@ self.addEventListener('activate', (event) => {
 })
 
 const STATIC_PATTERN = /\/_next\/static\/|\.(?:woff2?|ttf|otf|css|js|svg|png|jpg|jpeg|webp|ico)$/
-const ICON_PATTERN = /^\/(icon\d?|apple-icon)(\?.*)?$/
 
 self.addEventListener('fetch', (event) => {
   const req = event.request
@@ -49,7 +48,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Static assets / icons → cache-first
-  if (STATIC_PATTERN.test(url.pathname) || ICON_PATTERN.test(url.pathname)) {
+  if (STATIC_PATTERN.test(url.pathname)) {
     event.respondWith(cacheFirst(req))
     return
   }

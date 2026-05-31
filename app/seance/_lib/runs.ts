@@ -1,4 +1,5 @@
 import type { Run } from './types'
+import { formatProfileLine, type ProfileHeader } from './helpers'
 
 export const DISTANCE_PRESETS_M = [80, 100, 200, 250, 300, 400] as const
 
@@ -60,6 +61,170 @@ export function parseChrono(input: string): number | null {
     return Math.round((s + frac) * 1000)
   }
   return null
+}
+
+/**
+ * Vitesse maximale (m/s) connue pour chaque distance, sur l'historique complet.
+ * Sert de base au calcul du %PR sur une période donnée (intensité cardio par muscle, etc.).
+ */
+export function computePrSpeedByDistance(allRuns: Run[]): Map<number, number> {
+  const out = new Map<number, number>()
+  for (const r of allRuns) {
+    if (!r.distance_m || !r.duration_ms || r.duration_ms <= 0) continue
+    const speed = r.distance_m / (r.duration_ms / 1000)
+    const cur = out.get(r.distance_m)
+    if (cur == null || speed > cur) out.set(r.distance_m, speed)
+  }
+  return out
+}
+
+/**
+ * Intensité moyenne pondérée par distance : Σ(distance × %PR) / Σ distance.
+ * Retourne null si aucun run exploitable.
+ *   - Si la distance n'a pas de PR connu (1ʳᵉ fois), prPct = 1 (le run est son propre PR).
+ */
+export function computeAvgPrPct(
+  runs: Run[],
+  prSpeedByDistance: Map<number, number>,
+): number | null {
+  let weightedSum = 0
+  let weightTotal = 0
+  for (const r of runs) {
+    if (!r.distance_m || !r.duration_ms || r.duration_ms <= 0) continue
+    const runSpeed = r.distance_m / (r.duration_ms / 1000)
+    const prSpeed = prSpeedByDistance.get(r.distance_m) ?? runSpeed
+    const prPct = prSpeed > 0 ? runSpeed / prSpeed : 0
+    weightedSum += r.distance_m * prPct
+    weightTotal += r.distance_m
+  }
+  return weightTotal > 0 ? weightedSum / weightTotal : null
+}
+
+/**
+ * Allure moyenne (m/s) pondérée par distance sur une liste de runs.
+ * Retourne 0 si aucun run.
+ */
+export function computeAvgSpeed(runs: Run[]): number {
+  let weightedSum = 0
+  let weightTotal = 0
+  for (const r of runs) {
+    if (!r.distance_m || !r.duration_ms || r.duration_ms <= 0) continue
+    const speed = r.distance_m / (r.duration_ms / 1000)
+    weightedSum += r.distance_m * speed
+    weightTotal += r.distance_m
+  }
+  return weightTotal > 0 ? weightedSum / weightTotal : 0
+}
+
+/**
+ * Activité par jour sur les N derniers jours glissants (par défaut 28 = 4 semaines).
+ * Le résultat est ordonné du plus ancien au plus récent ; le dernier élément est aujourd'hui.
+ */
+export type DayActivity = {
+  date: string
+  isToday: boolean
+  runs: number
+}
+
+export function bucketActivityDays(allRuns: Run[], daysWindow = 28): DayActivity[] {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const todayStr = today.toISOString().slice(0, 10)
+
+  const runsByDate = new Map<string, number>()
+  for (const r of allRuns) {
+    if (!r.date) continue
+    runsByDate.set(r.date, (runsByDate.get(r.date) ?? 0) + 1)
+  }
+
+  const out: DayActivity[] = []
+  for (let i = daysWindow - 1; i >= 0; i--) {
+    const d = new Date(today)
+    d.setDate(d.getDate() - i)
+    const dateStr = d.toISOString().slice(0, 10)
+    out.push({
+      date: dateStr,
+      isToday: dateStr === todayStr,
+      runs: runsByDate.get(dateStr) ?? 0,
+    })
+  }
+  return out
+}
+
+/**
+ * Activité par jour sur une fenêtre glissante de `windowDays` jours se terminant
+ * `endDaysAgo` jours avant aujourd'hui (0 = fenêtre finissant aujourd'hui).
+ * Sert à paginer le calendrier de régularité par tranches sans recharger.
+ */
+export function bucketActivityWindow(
+  allRuns: Run[],
+  endDaysAgo: number,
+  windowDays: number,
+): DayActivity[] {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const todayStr = today.toISOString().slice(0, 10)
+
+  const runsByDate = new Map<string, number>()
+  for (const r of allRuns) {
+    if (!r.date) continue
+    runsByDate.set(r.date, (runsByDate.get(r.date) ?? 0) + 1)
+  }
+
+  const out: DayActivity[] = []
+  for (let i = windowDays - 1; i >= 0; i--) {
+    const d = new Date(today)
+    d.setDate(d.getDate() - endDaysAgo - i)
+    const dateStr = d.toISOString().slice(0, 10)
+    out.push({
+      date: dateStr,
+      isToday: dateStr === todayStr,
+      runs: runsByDate.get(dateStr) ?? 0,
+    })
+  }
+  return out
+}
+
+/**
+ * Nombre de jours (>=1) entre le 1er run et aujourd'hui. 0 si aucun run.
+ * Helper hors composant : encapsule `new Date()` pour ne pas violer la règle
+ * de pureté du render (react-hooks/purity).
+ */
+export function daysSinceFirstRun(runs: Run[]): number {
+  if (runs.length === 0) return 0
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  let first = Infinity
+  for (const r of runs) {
+    if (!r.date) continue
+    const t = new Date(r.date + 'T00:00:00').getTime()
+    if (t < first) first = t
+  }
+  if (!Number.isFinite(first)) return 0
+  return Math.ceil((today.getTime() - first) / 86400000) + 1
+}
+
+/**
+ * Allure moyenne (m/s) par semaine sur les N dernières semaines glissantes.
+ * Une "semaine" = bloc de 7 jours ending à aujourd'hui. Index 0 = la semaine la plus ancienne.
+ * Retourne `0` pour une semaine sans run (pour rester compatible avec Sparkline12w).
+ */
+export function bucketWeeklyAvgSpeed(allRuns: Run[], weeks = 12): number[] {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const buckets: Run[][] = Array.from({ length: weeks }, () => [])
+  for (const r of allRuns) {
+    if (!r.date) continue
+    const d = new Date(r.date + 'T00:00:00')
+    const daysAgo = Math.floor((today.getTime() - d.getTime()) / 86400000)
+    if (daysAgo < 0) continue
+    const weekIdx = Math.floor(daysAgo / 7)
+    if (weekIdx >= weeks) continue
+    // weekIdx=0 = cette semaine ; on veut index 0 = la plus ancienne → inverser.
+    buckets[weeks - 1 - weekIdx].push(r)
+  }
+  return buckets.map((b) => computeAvgSpeed(b))
 }
 
 /**
@@ -326,8 +491,9 @@ export function formatAthleticsSessionAsText(args: {
   startedAt: string
   endedAt: string
   runsWithPR: RunWithPR[]
+  profile?: ProfileHeader
 }): string {
-  const { date, startedAt, endedAt, runsWithPR } = args
+  const { date, startedAt, endedAt, runsWithPR, profile } = args
   const d = new Date(date + 'T00:00:00')
   const dateLong = new Intl.DateTimeFormat('fr-FR', {
     weekday: 'long',
@@ -348,6 +514,11 @@ export function formatAthleticsSessionAsText(args: {
   const newPRs = runsWithPR.filter((r) => r.isNewPR).length
 
   const lines: string[] = []
+  const profileLine = formatProfileLine(profile)
+  if (profileLine) {
+    lines.push(profileLine)
+    lines.push('')
+  }
   lines.push(`# Séance Athlétisme — ${dateLong}`)
   lines.push('')
   lines.push(`- Horaires : ${startTime} → ${endTime} (${duration})`)

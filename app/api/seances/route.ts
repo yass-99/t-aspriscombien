@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createSupabaseServer } from '../../lib/supabase-server'
+import { resolveExerciseId } from '../../lib/exercises'
 
 type SerieIn = {
   poids: number
@@ -10,6 +11,8 @@ type SerieIn = {
 }
 type ExoIn = {
   nom: string
+  isBodyweight?: boolean
+  isUnilateral?: boolean
   series: SerieIn[]
 }
 type PostBody = {
@@ -19,13 +22,13 @@ type PostBody = {
   exos: ExoIn[]
 }
 
-type SerieRow = { id: string; poids: number; reps: number }
-type ExoRow = { id: string; nom: string; series: SerieRow[] | null }
-type SeanceRow = {
+type SummaryRow = {
   id: string
-  type: string
   date: string
-  exos: ExoRow[] | null
+  type: string
+  exos_count: number
+  series_count: number
+  volume: number
 }
 
 function isValidISODate(s: string): boolean {
@@ -39,32 +42,23 @@ export async function GET() {
   if (!token) return NextResponse.json({ error: 'Token Supabase indisponible' }, { status: 401 })
 
   const supabase = createSupabaseServer(token)
-  const { data, error } = (await supabase
-    .from('seances')
-    .select('id, date, type, exos(id, series(id, poids, reps))')
-    .order('date', { ascending: false })
-    .limit(500)) as unknown as { data: SeanceRow[] | null; error: { message: string } | null }
+  // Agrégation (count/sum) faite côté Postgres : on ne transporte plus toutes les
+  // séries de chaque séance, seulement le résumé affiché dans l'historique.
+  const { data, error } = (await supabase.rpc('seance_history_summary')) as unknown as {
+    data: SummaryRow[] | null
+    error: { message: string } | null
+  }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const seances = (data ?? []).map((s) => {
-    let seriesCount = 0
-    let volume = 0
-    for (const e of s.exos ?? []) {
-      for (const sr of e.series ?? []) {
-        seriesCount++
-        volume += sr.poids * sr.reps
-      }
-    }
-    return {
-      id: s.id,
-      date: s.date,
-      type: s.type,
-      exosCount: (s.exos ?? []).length,
-      seriesCount,
-      volume,
-    }
-  })
+  const seances = (data ?? []).map((s) => ({
+    id: s.id,
+    date: s.date,
+    type: s.type,
+    exosCount: s.exos_count,
+    seriesCount: s.series_count,
+    volume: s.volume,
+  }))
 
   return NextResponse.json({ seances })
 }
@@ -106,9 +100,20 @@ export async function POST(req: NextRequest) {
 
   for (const exo of body.exos) {
     if (!exo.nom?.trim() || !exo.series || exo.series.length === 0) continue
+    // nom + flags vivent sur exercises → résolution (ou création) avant insert exos.
+    const exerciseId = await resolveExerciseId(
+      supabase,
+      userId,
+      exo.nom,
+      !!exo.isBodyweight,
+      !!exo.isUnilateral,
+    )
+    if (exerciseId == null) {
+      return NextResponse.json({ error: 'Échec résolution exercice' }, { status: 500 })
+    }
     const { data: exoRow, error: eErr } = await supabase
       .from('exos')
-      .insert({ seance_id: seanceId, nom: exo.nom.trim() })
+      .insert({ seance_id: seanceId, exercise_id: exerciseId })
       .select('id')
       .single()
     if (eErr || !exoRow) {

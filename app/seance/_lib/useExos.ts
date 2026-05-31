@@ -9,6 +9,9 @@ export type ExoSuggestion = {
   lastPoids: number | null
   lastReps: number | null
   topPoids: number | null
+  // Flags du dernier usage — pré-cochent PDC / unilatéral à la saisie.
+  lastIsBodyweight: boolean
+  lastIsUnilateral: boolean
   types: string[]
 }
 
@@ -25,7 +28,17 @@ type State = {
 // DB redondant tant que rien n'a changé.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const STORAGE_KEY = 'tcp:exos:v1'
+// Bump le suffixe de version quand la FORME des suggestions change ou qu'un
+// changement serveur doit invalider tous les caches existants en une fois
+// (ex: ajout du catalogue exercises). Les anciennes clés deviennent orphelines
+// et ne sont plus relues.
+const STORAGE_KEY = 'tcp:exos:v2'
+
+// Durée de fraîcheur du cache. Au-delà, on réaffiche immédiatement les données
+// en cache (pas de flash) MAIS on déclenche un refetch silencieux en arrière-plan
+// → les MAJ côté serveur (nouveaux exos catalogue, etc.) finissent par remonter
+// sans dépendre d'une mutation de séance.
+const STALE_MS = 3 * 60 * 1000 // 3 min
 
 type CachePayload = {
   ts: number
@@ -34,6 +47,10 @@ type CachePayload = {
 
 let memoryCache: CachePayload | null = null
 const subscribers = new Set<() => void>()
+
+function isStale(c: CachePayload | null): boolean {
+  return !c || Date.now() - c.ts > STALE_MS
+}
 
 function readStorage(): CachePayload | null {
   if (typeof window === 'undefined') return null
@@ -109,37 +126,36 @@ export function useExos() {
 
   useEffect(() => {
     let cancelled = false
-    // Si on a déjà un cache : on ne re-fetch pas. L'invalidation explicite
-    // (après save) déclenchera un refresh via le subscriber ci-dessous.
-    if (memoryCache) {
-      setState({ exos: memoryCache.exos, loading: false, error: null })
-    } else {
+
+    // Refetch en arrière-plan. `silent` = on garde l'affichage courant et on ne
+    // remonte pas l'erreur (utile quand on a déjà des données en cache).
+    const revalidate = (silent: boolean) => {
       fetchExos()
         .then((exos) => {
           if (!cancelled) setState({ exos, loading: false, error: null })
         })
         .catch((e) => {
-          if (!cancelled) {
-            setState({
-              exos: [],
-              loading: false,
-              error: e instanceof Error ? e.message : 'Erreur réseau',
-            })
-          }
+          if (cancelled || silent) return
+          setState({
+            exos: [],
+            loading: false,
+            error: e instanceof Error ? e.message : 'Erreur réseau',
+          })
         })
     }
 
+    if (memoryCache) {
+      // Affichage instantané depuis le cache…
+      setState({ exos: memoryCache.exos, loading: false, error: null })
+      // …puis revalidation silencieuse si le cache est périmé (stale-while-revalidate).
+      if (isStale(memoryCache)) revalidate(true)
+    } else {
+      revalidate(false)
+    }
+
+    // Invalidation explicite (après save/edit/delete séance) → refetch silencieux.
     const onInvalidate = () => {
-      if (cancelled) return
-      // Refetch silencieux : on conserve les données affichées et on ne touche
-      // pas à `loading`. Une fois la réponse arrivée, on swap.
-      fetchExos()
-        .then((exos) => {
-          if (!cancelled) setState({ exos, loading: false, error: null })
-        })
-        .catch(() => {
-          // En cas d'erreur réseau, on garde les anciennes données — pas de flash.
-        })
+      if (!cancelled) revalidate(true)
     }
     subscribers.add(onInvalidate)
     return () => {

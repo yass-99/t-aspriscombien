@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createSupabaseServer } from '../../../lib/supabase-server'
+import { resolveExerciseId } from '../../../lib/exercises'
 import type { SessionState } from '../../../seance/_lib/types'
 
 export async function POST(req: NextRequest) {
@@ -81,11 +82,31 @@ export async function POST(req: NextRequest) {
   for (const exo of sessionState.exos) {
     if (!exo.series || exo.series.length === 0) continue
 
+    // nom + flags vivent désormais sur exercises → résolution (ou création).
+    const exerciseId = await resolveExerciseId(
+      supabase,
+      userId,
+      exo.nom,
+      !!exo.isBodyweight,
+      !!exo.isUnilateral,
+    )
+    if (exerciseId == null) {
+      console.error('[SEANCE_SAVE_RESOLVE_EXO] Échec résolution exercice', {
+        userId,
+        seanceId,
+        exoNom: exo.nom,
+      })
+      return NextResponse.json(
+        { error: 'Échec résolution exercice', code: 'SEANCE_SAVE_RESOLVE_EXO' },
+        { status: 500 },
+      )
+    }
+
     const { data: exoRow, error: exoErr } = await supabase
       .from('exos')
       .insert({
         seance_id: seanceId,
-        nom: exo.nom,
+        exercise_id: exerciseId,
       })
       .select('id')
       .single()

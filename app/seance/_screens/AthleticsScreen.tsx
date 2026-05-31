@@ -10,8 +10,9 @@ import {
   formatChrono,
   summarizeByDistance,
 } from '../_lib/runs'
-import { Button, FinishPill, IconButton, TopBar } from '../_components/primitives'
-import { Check, Timer, X } from '../_components/icons'
+import { Button, Card, IconButton, StopSquare, TopBar } from '../_components/primitives'
+import { Check, ChevronRight, Timer, Trash, X } from '../_components/icons'
+import { LetterReveal } from '../_components/LetterReveal'
 import { useToast } from '../../_components/Toast'
 import { useWakeLock } from '../_lib/useWakeLock'
 
@@ -41,6 +42,13 @@ export function AthleticsScreen({ nav, initialDistance = null }: Props) {
     Array<{ distance_m: number; duration_ms: number }>
   >([])
   const [batchSaving, setBatchSaving] = useState(false)
+  // Écran intermédiaire « choix de distance » vs chrono pur. On garde ces deux
+  // vues dans le même composant pour que pendingRuns/selectedDistance survivent
+  // au va-et-vient (changer de distance entre deux courses ne perd rien).
+  // Si une distance est imposée (drill-down depuis Stats), on saute le setup.
+  const [phase, setPhase] = useState<'distance' | 'chrono' | 'review'>(
+    initialDistance != null ? 'chrono' : 'distance',
+  )
 
   useEffect(() => {
     if (error) toast.warn(error)
@@ -88,28 +96,54 @@ export function AthleticsScreen({ nav, initialDistance = null }: Props) {
     }
   }
 
+  if (phase === 'distance') {
+    return (
+      <DistanceSetupView
+        distance={selectedDistance}
+        userDistances={userDistances}
+        sessionRunCount={pendingRuns.length}
+        disabled={batchSaving}
+        onChangeDistance={(d) => setSelectedDistance(d)}
+        onCancel={() => nav('idle')}
+        onContinue={() => setPhase('chrono')}
+      />
+    )
+  }
+
+  if (phase === 'review') {
+    return (
+      <SessionReviewView
+        runs={pendingRuns}
+        saving={batchSaving}
+        onDeleteRun={(i) => setPendingRuns((rs) => rs.filter((_, idx) => idx !== i))}
+        onBack={() => setPhase('chrono')}
+        onValidate={() => persistAndFinish(pendingRuns)}
+      />
+    )
+  }
+
   return (
     <ChronoView
       distance={selectedDistance}
-      userDistances={userDistances}
       sessionRunCount={pendingRuns.length}
       batchSaving={batchSaving}
       onCancel={() => nav('idle')}
-      onChangeDistance={(d) => setSelectedDistance(d)}
+      onEditDistance={() => setPhase('distance')}
       onNextRun={(ms) => {
         setPendingRuns((rs) => [
           ...rs,
           { distance_m: selectedDistance, duration_ms: ms },
         ])
       }}
+      // « Finir » ne sauvegarde plus : on ajoute le chrono courant à la file et
+      // on bascule sur l'écran de validation. La persistance batch n'a lieu
+      // qu'au clic « Valider » dans SessionReviewView.
       onFinishWithRun={async (ms) => {
-        await persistAndFinish([
-          ...pendingRuns,
-          { distance_m: selectedDistance, duration_ms: ms },
-        ])
+        setPendingRuns((rs) => [...rs, { distance_m: selectedDistance, duration_ms: ms }])
+        setPhase('review')
       }}
       onFinishExisting={
-        pendingRuns.length > 0 ? () => persistAndFinish(pendingRuns) : undefined
+        pendingRuns.length > 0 ? () => setPhase('review') : undefined
       }
     />
   )
@@ -123,17 +157,15 @@ type PendingAction = 'next' | 'finish' | null
 
 function ChronoView({
   distance,
-  userDistances,
   sessionRunCount,
   batchSaving,
   onCancel,
   onNextRun,
   onFinishWithRun,
   onFinishExisting,
-  onChangeDistance,
+  onEditDistance,
 }: {
   distance: number
-  userDistances: number[]
   // Nombre de chronos déjà mémorisés pour cette séance (afficher le pill
   // « Terminer » dans la TopBar entre deux courses).
   sessionRunCount: number
@@ -146,7 +178,8 @@ function ChronoView({
   onFinishWithRun: (ms: number) => Promise<void>
   // Persiste les chronos déjà mémorisés puis nav (utilisé entre deux courses).
   onFinishExisting?: () => void
-  onChangeDistance: (d: number) => void
+  // Repasse à l'écran de choix de distance (depuis l'état idle uniquement).
+  onEditDistance: () => void
 }) {
   const [status, setStatus] = useState<ChronoStatus>('idle')
   const [elapsedMs, setElapsedMs] = useState(0)
@@ -217,7 +250,7 @@ function ChronoView({
       style={{
         minHeight: '100dvh',
         background: isRunning
-          ? 'radial-gradient(120% 70% at 50% 0%, color-mix(in oklch, var(--accent) 14%, var(--bg)) 0%, var(--bg) 60%)'
+          ? 'radial-gradient(120% 70% at 50% 0%, color-mix(in oklch, var(--warn) 14%, var(--bg)) 0%, var(--bg) 60%)'
           : 'var(--bg)',
         display: 'flex',
         flexDirection: 'column',
@@ -234,21 +267,51 @@ function ChronoView({
             ? `${distance}m · ${sessionRunCount} chrono${sessionRunCount > 1 ? 's' : ''} dans la séance`
             : `${distance}m`
         }
-        trailing={
-          status === 'idle' && sessionRunCount > 0 && onFinishExisting && !batchSaving ? (
-            <FinishPill tone="accent" label="Terminer" onClick={onFinishExisting} />
-          ) : null
-        }
       />
 
       {status === 'idle' && (
-        <div style={{ padding: '4px 20px 0' }}>
-          <DistancePicker
-            value={distance}
-            userDistances={userDistances}
-            onChange={onChangeDistance}
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 20px 0' }}>
+          <button
+            className="tap"
+            onClick={onEditDistance}
             disabled={batchSaving}
-          />
+            style={{
+              appearance: 'none',
+              border: 'none',
+              cursor: batchSaving ? 'not-allowed' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '8px 10px 8px 14px',
+              borderRadius: 999,
+              background: 'var(--surface)',
+              boxShadow: '0 0 0 1px var(--line) inset',
+              // Distance = data athlé → valeur en orange (cf. DESIGN §1).
+              color: 'var(--warn)',
+              fontFamily: 'var(--mono)',
+              fontWeight: 600,
+              fontSize: 13,
+              opacity: batchSaving ? 0.5 : 1,
+              transition: 'background 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1), transform 140ms cubic-bezier(0.22, 1, 0.36, 1)',
+              animation: 'fadeUp 500ms 80ms cubic-bezier(0.22, 1, 0.36, 1) both',
+            }}
+          >
+            <span>{distance}m</span>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 2,
+                color: 'var(--muted)',
+                fontFamily: 'var(--font)',
+                fontWeight: 500,
+                fontSize: 12,
+              }}
+            >
+              changer
+              <ChevronRight size={13} />
+            </span>
+          </button>
         </div>
       )}
 
@@ -273,7 +336,7 @@ function ChronoView({
               status === 'idle'
                 ? 'var(--muted)'
                 : status === 'running'
-                  ? 'var(--accent)'
+                  ? 'var(--warn)'
                   : 'var(--ink)',
             fontVariantNumeric: 'tabular-nums',
             transition: 'color 200ms',
@@ -323,17 +386,107 @@ function ChronoView({
       >
         <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {status === 'idle' && (
-            <Button onClick={start} icon={<Timer size={16} />} disabled={batchSaving}>
-              Démarrer
-            </Button>
+            // « Démarrer » et « Terminer » côte à côte : clôturer la séance vit
+            // en bas près du pouce (plus en haut dans la TopBar). Terminer
+            // n'apparaît que s'il y a déjà des chronos à enregistrer.
+            <div style={{ display: 'flex', gap: 10 }}>
+              <Button
+                onClick={start}
+                icon={<Timer size={16} />}
+                disabled={batchSaving}
+                style={{ flex: 1 }}
+              >
+                Démarrer
+              </Button>
+              {sessionRunCount > 0 && onFinishExisting && !batchSaving && (
+                <TerminerButton onClick={onFinishExisting} />
+              )}
+            </div>
           )}
           {status === 'running' && (
-            <Button variant="danger" onClick={stop} icon={<X size={16} stroke={2.4} />}>
-              Stop
-            </Button>
+            // Stop épuré : un carré dans un contour rouge, sans fond.
+            <button
+              onClick={stop}
+              aria-label="Arrêter le chrono"
+              className="tap"
+              style={{
+                height: 52,
+                width: '100%',
+                borderRadius: 'var(--radius-full)',
+                border: 'none',
+                cursor: 'pointer',
+                background: 'transparent',
+                boxShadow: '0 0 0 1.5px var(--danger) inset',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'background 140ms',
+              }}
+            >
+              <StopSquare size={18} color="var(--danger)" />
+            </button>
           )}
           {status === 'stopped' && (
+            // Hiérarchie par proximité du pouce (bas = plus logique) :
+            //   Refaire/Quitter (mineurs) en haut → Finir (orange, la fin) →
+            //   Course suivante (action répétée, primaire) tout en bas.
             <>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={resetChrono}
+                  disabled={busy}
+                  style={{ flex: 1 }}
+                >
+                  Refaire
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={onCancel}
+                  disabled={busy}
+                  style={{ flex: 1 }}
+                >
+                  Quitter
+                </Button>
+              </div>
+              {/* Finir = orange (identité athlé) : signale la fin de la séance. */}
+              <button
+                onClick={handleFinish}
+                disabled={busy || elapsedMs <= 0}
+                className="tap"
+                aria-label="Finir la séance"
+                style={{
+                  height: 52,
+                  width: '100%',
+                  borderRadius: 'var(--radius-full)',
+                  border: 'none',
+                  cursor: busy || elapsedMs <= 0 ? 'not-allowed' : 'pointer',
+                  background: 'transparent',
+                  color: 'var(--warn)',
+                  boxShadow: '0 0 0 1.5px var(--warn) inset',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  fontSize: 16,
+                  fontWeight: 600,
+                  fontFamily: 'var(--font)',
+                  opacity: busy || elapsedMs <= 0 ? 0.5 : 1,
+                  transition: 'background 140ms',
+                }}
+              >
+                {pending === 'finish' || batchSaving ? (
+                  'Enregistrement…'
+                ) : (
+                  <>
+                    <Check size={16} stroke={2.4} />
+                    Finir la séance
+                  </>
+                )}
+              </button>
+              {/* Course suivante = action la plus fréquente → sous le pouce. */}
               <Button
                 onClick={handleNext}
                 icon={<Timer size={16} />}
@@ -341,30 +494,147 @@ function ChronoView({
               >
                 Course suivante
               </Button>
-              <Button
-                variant="secondary"
-                onClick={handleFinish}
-                icon={pending === 'finish' || batchSaving ? undefined : <Check size={16} />}
-                disabled={busy || elapsedMs <= 0}
-              >
-                {pending === 'finish' || batchSaving ? 'Enregistrement…' : 'Finir la séance'}
-              </Button>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button
-                  variant="secondary"
-                  size="md"
-                  onClick={resetChrono}
-                  disabled={busy}
-                >
-                  Refaire
-                </Button>
-                <Button variant="secondary" size="md" onClick={onCancel} disabled={busy}>
-                  Quitter
-                </Button>
-              </div>
             </>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Bouton « Terminer » : clôture la séance d'athlé (batch save). Ton orange
+// (identité athlé, cf. DESIGN §1) + carré explicite, posé en bas à côté de
+// « Démarrer ». Même grammaire que le StopButton du LoggingScreen.
+function TerminerButton({ onClick }: { onClick: () => void }) {
+  const [hover, setHover] = useState(false)
+  return (
+    <button
+      onClick={onClick}
+      aria-label="Terminer la séance"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="tap"
+      style={{
+        height: 52,
+        flexShrink: 0,
+        padding: '0 20px',
+        borderRadius: 16,
+        border: 'none',
+        cursor: 'pointer',
+        background: hover
+          ? 'color-mix(in oklch, var(--warn) 18%, var(--surface))'
+          : 'var(--surface)',
+        color: 'var(--warn)',
+        boxShadow: '0 0 0 1px color-mix(in oklch, var(--warn) 28%, var(--hairline)) inset',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        fontSize: 15,
+        fontWeight: 600,
+        transition: 'background 140ms',
+      }}
+    >
+      <StopSquare size={15} color="var(--warn)" />
+      Terminer
+    </button>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ÉCRAN DE CHOIX DE DISTANCE (intermédiaire, mono-tâche)
+// ══════════════════════════════════════════════════════════════════
+// Sépare le choix de distance du chrono : la page chrono reste pure et son
+// bouton « Démarrer » est toujours visible sans scroll.
+function DistanceSetupView({
+  distance,
+  userDistances,
+  sessionRunCount,
+  disabled,
+  onChangeDistance,
+  onCancel,
+  onContinue,
+}: {
+  distance: number
+  userDistances: number[]
+  sessionRunCount: number
+  disabled: boolean
+  onChangeDistance: (d: number) => void
+  onCancel: () => void
+  onContinue: () => void
+}) {
+  return (
+    <div
+      style={{
+        minHeight: '100dvh',
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'transparent',
+      }}
+    >
+      <TopBar
+        leading={
+          <IconButton icon={<X size={16} />} label="quitter" onClick={onCancel} />
+        }
+        title="Athlétisme"
+        subtitle={
+          sessionRunCount > 0
+            ? `${sessionRunCount} chrono${sessionRunCount > 1 ? 's' : ''} en cours`
+            : 'Chrono dédié'
+        }
+      />
+
+      <div style={{ flex: 1, padding: '8px 20px 24px' }}>
+        <h2
+          style={{
+            fontSize: 30,
+            fontWeight: 700,
+            letterSpacing: -1.2,
+            margin: '8px 0 4px',
+            fontFamily: 'var(--display)',
+          }}
+        >
+          <LetterReveal
+            segments={[
+              { text: 'Quelle distance' },
+              { text: ' ?', color: 'var(--brand)' },
+            ]}
+          />
+        </h2>
+        <p
+          style={{
+            margin: '0 0 22px',
+            color: 'var(--muted)',
+            fontSize: 14,
+            animation: 'fadeUp 580ms 600ms cubic-bezier(0.22, 1, 0.36, 1) both',
+          }}
+        >
+          Le chrono démarre sur cette distance. Tu pourras la changer entre deux
+          courses.
+        </p>
+
+        <div style={{ animation: 'fadeUp 580ms 720ms cubic-bezier(0.22, 1, 0.36, 1) both' }}>
+          <DistancePicker
+            value={distance}
+            userDistances={userDistances}
+            onChange={onChangeDistance}
+            disabled={disabled}
+          />
+        </div>
+      </div>
+
+      <div
+        style={{
+          padding: '14px 20px 22px',
+          background: 'linear-gradient(180deg, transparent, var(--bg) 30%)',
+        }}
+      >
+        <Button
+          onClick={onContinue}
+          disabled={disabled}
+          trailingIcon={<ChevronRight size={16} />}
+        >
+          Aller au chrono
+        </Button>
       </div>
     </div>
   )
@@ -420,12 +690,13 @@ function DistancePicker({
         Distance
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-        {distances.map((d) => {
+        {distances.map((d, i) => {
           const active = !customMode && value === d
           const isCustom = !DISTANCE_PRESETS_M.includes(d as never)
           return (
             <button
               key={d}
+              className="tap"
               onClick={() => {
                 setCustomMode(false)
                 onChange(d)
@@ -437,18 +708,20 @@ function DistancePicker({
                 cursor: disabled ? 'not-allowed' : 'pointer',
                 padding: '10px 8px',
                 borderRadius: 10,
-                background: active ? 'var(--accent-soft)' : 'var(--surface)',
-                color: active ? 'var(--accent)' : 'var(--ink-2)',
+                // Distance = data athlé → sélection en orange (cf. DESIGN §1), jamais en vert (muscu).
+                background: active ? 'color-mix(in oklch, var(--warn) 14%, var(--bg))' : 'var(--surface)',
+                color: active ? 'var(--warn)' : 'var(--ink-2)',
                 boxShadow: active
-                  ? '0 0 0 1.5px var(--accent) inset'
+                  ? '0 0 0 1.5px var(--warn) inset'
                   : isCustom
-                    ? '0 0 0 1px var(--accent-line) inset'
+                    ? '0 0 0 1px var(--brand-line) inset'
                     : '0 0 0 1px var(--line) inset',
                 fontFamily: 'var(--mono)',
                 fontWeight: 600,
                 fontSize: 13,
                 opacity: disabled ? 0.5 : 1,
-                transition: 'all 140ms',
+                transition: 'background 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1), color 180ms, transform 140ms cubic-bezier(0.22, 1, 0.36, 1)',
+                animation: `fadeUp 480ms ${(0.76 + i * 0.04).toFixed(2)}s cubic-bezier(0.22, 1, 0.36, 1) both`,
               }}
             >
               {d}m
@@ -458,6 +731,7 @@ function DistancePicker({
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
         <button
+          className="tap"
           onClick={() => setCustomMode((v) => !v)}
           disabled={disabled}
           style={{
@@ -466,8 +740,8 @@ function DistancePicker({
             cursor: disabled ? 'not-allowed' : 'pointer',
             padding: '8px 12px',
             borderRadius: 8,
-            background: customMode ? 'var(--accent-soft)' : 'var(--surface-2)',
-            color: customMode ? 'var(--accent)' : 'var(--muted)',
+            background: customMode ? 'color-mix(in oklch, var(--warn) 14%, var(--bg))' : 'var(--surface-2)',
+            color: customMode ? 'var(--warn)' : 'var(--muted)',
             fontSize: 12,
             fontWeight: 600,
             fontFamily: 'var(--font)',
@@ -523,6 +797,287 @@ function DistancePicker({
           {customError}
         </div>
       )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════
+// VALIDATION DE LA SÉANCE (avant enregistrement)
+// ══════════════════════════════════════════════════════════════════
+// Calque du SummaryScreen muscu : on récapitule les chronos accumulés en
+// mémoire et on ne persiste (batch) qu'au clic « Valider ». Ton ambre = athlé.
+const WARN_SOFT = 'color-mix(in oklch, var(--warn) 16%, var(--surface))'
+const WARN_LINE = 'color-mix(in oklch, var(--warn) 38%, var(--surface))'
+
+function SessionReviewView({
+  runs,
+  saving,
+  onDeleteRun,
+  onBack,
+  onValidate,
+}: {
+  runs: Array<{ distance_m: number; duration_ms: number }>
+  saving: boolean
+  onDeleteRun: (index: number) => void
+  onBack: () => void
+  onValidate: () => void
+}) {
+  const count = runs.length
+  const distances = new Set(runs.map((r) => r.distance_m)).size
+  const fastest = runs.reduce<number | null>(
+    (m, r) => (m == null || r.duration_ms < m ? r.duration_ms : m),
+    null,
+  )
+
+  return (
+    <div
+      style={{
+        minHeight: '100dvh',
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'transparent',
+      }}
+    >
+      <TopBar
+        leading={<IconButton icon={<X size={16} />} label="retour au chrono" onClick={onBack} />}
+        title="Séance terminée"
+        subtitle="Vérifie et confirme"
+      />
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 16px 16px' }}>
+        {/* Hero */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            marginBottom: 16,
+            animation: 'fadeUp 360ms ease both',
+          }}
+        >
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 14,
+              background: WARN_SOFT,
+              color: 'var(--warn)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <Timer size={22} />
+          </div>
+          <div>
+            <h2
+              style={{
+                fontSize: 26,
+                fontWeight: 700,
+                letterSpacing: -0.9,
+                margin: '0 0 2px',
+                fontFamily: 'var(--display)',
+              }}
+            >
+              Séance terminée<span style={{ color: 'var(--warn)' }}>.</span>
+            </h2>
+            <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13 }}>
+              {count} chrono{count > 1 ? 's' : ''} · prête à enregistrer
+            </p>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <Card style={{ padding: 14, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+            <ReviewStat label="Chronos" value={String(count)} />
+            <ReviewStat label="Distances" value={String(distances)} />
+            <ReviewStat label="Plus rapide" value={fastest != null ? formatChrono(fastest) : '—'} />
+          </div>
+        </Card>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 2px 8px',
+          }}
+        >
+          <span
+            style={{
+              fontSize: 11,
+              color: 'var(--muted)',
+              fontWeight: 600,
+              letterSpacing: 0.4,
+              textTransform: 'uppercase',
+            }}
+          >
+            À vérifier
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--mono)' }}>
+            supprime un chrono raté
+          </span>
+        </div>
+
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          {count === 0 ? (
+            <div
+              style={{
+                padding: '20px 16px',
+                fontSize: 13,
+                color: 'var(--subtle)',
+                textAlign: 'center',
+                fontStyle: 'italic',
+              }}
+            >
+              Aucun chrono — reviens en arrière pour en ajouter.
+            </div>
+          ) : (
+            runs.map((r, i) => (
+              <div
+                key={i}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '12px 12px 12px 14px',
+                  borderTop: i === 0 ? 'none' : '1px solid var(--line-2)',
+                }}
+              >
+                <div
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 8,
+                    background: 'var(--surface-2)',
+                    color: 'var(--muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontFamily: 'var(--mono)',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    flexShrink: 0,
+                  }}
+                >
+                  {i + 1}
+                </div>
+                <span
+                  style={{
+                    fontFamily: 'var(--mono)',
+                    fontSize: 16,
+                    fontWeight: 600,
+                    color: 'var(--ink)',
+                    letterSpacing: -0.3,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {formatChrono(r.duration_ms)}
+                </span>
+                <span
+                  style={{
+                    fontFamily: 'var(--mono)',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: 'var(--warn)',
+                    background: WARN_SOFT,
+                    boxShadow: `0 0 0 1px ${WARN_LINE} inset`,
+                    padding: '2px 8px',
+                    borderRadius: 999,
+                    flexShrink: 0,
+                  }}
+                >
+                  {r.distance_m}m
+                </span>
+                <span style={{ flex: 1 }} />
+                <button
+                  type="button"
+                  onClick={() => onDeleteRun(i)}
+                  disabled={saving}
+                  aria-label="Supprimer ce chrono"
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 8,
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--subtle)',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    opacity: saving ? 0.5 : 1,
+                  }}
+                >
+                  <Trash size={15} />
+                </button>
+              </div>
+            ))
+          )}
+        </Card>
+      </div>
+
+      {/* Boutons collés en bas du viewport */}
+      <div
+        style={{
+          padding: '14px 16px calc(env(safe-area-inset-bottom, 0px) + 22px)',
+          background: 'linear-gradient(180deg, transparent, var(--bg) 30%)',
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 480,
+            margin: '0 auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+          }}
+        >
+          <Button
+            onClick={onValidate}
+            disabled={saving || count === 0}
+            icon={saving ? undefined : <Check size={16} />}
+          >
+            {saving ? 'Enregistrement…' : 'Valider la séance'}
+          </Button>
+          <Button variant="secondary" onClick={onBack} disabled={saving}>
+            Annuler
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ReviewStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ textAlign: 'center' }}>
+      <div
+        style={{
+          fontSize: 10,
+          color: 'var(--muted)',
+          fontWeight: 600,
+          letterSpacing: 0.3,
+          textTransform: 'uppercase',
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontFamily: 'var(--mono)',
+          fontSize: 18,
+          fontWeight: 600,
+          letterSpacing: -0.5,
+          marginTop: 4,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {value}
+      </div>
     </div>
   )
 }

@@ -9,7 +9,12 @@ type SerieRow = {
   rir: number
   degressive: boolean
 }
-type ExoRow = { id: string; nom: string; series: SerieRow[] | null }
+type ExoRow = {
+  id: string
+  // nom provient du join exercises (exercise_id).
+  exercises: { nom: string } | null
+  series: SerieRow[] | null
+}
 type SeanceRow = {
   id: string
   type: string
@@ -17,9 +22,9 @@ type SeanceRow = {
   exos: ExoRow[] | null
 }
 
-type Period = '7d' | '30d' | '90d' | 'all'
-const VALID_PERIODS: Period[] = ['7d', '30d', '90d', 'all']
-const PERIOD_DAYS: Record<Exclude<Period, 'all'>, number> = {
+type Period = '7d' | '30d' | '90d'
+const VALID_PERIODS: Period[] = ['7d', '30d', '90d']
+const PERIOD_DAYS: Record<Period, number> = {
   '7d': 7,
   '30d': 30,
   '90d': 90,
@@ -74,35 +79,29 @@ export async function GET(req: Request) {
   now.setHours(0, 0, 0, 0)
   const thisWeekStart = startOfWeekMonday(now)
 
-  let periodStart: Date | null = null
-  let prevPeriodStart: Date | null = null
-  let prevPeriodEnd: Date | null = null
-  if (period !== 'all') {
-    const days = PERIOD_DAYS[period]
-    periodStart = new Date(now)
-    periodStart.setDate(periodStart.getDate() - days + 1)
-    prevPeriodStart = new Date(periodStart)
-    prevPeriodStart.setDate(prevPeriodStart.getDate() - days)
-    prevPeriodEnd = new Date(periodStart)
-    prevPeriodEnd.setDate(prevPeriodEnd.getDate() - 1)
-  }
+  const days = PERIOD_DAYS[period]
+  const periodStart = new Date(now)
+  periodStart.setDate(periodStart.getDate() - days + 1)
+  const prevPeriodStart = new Date(periodStart)
+  prevPeriodStart.setDate(prevPeriodStart.getDate() - days)
+  const prevPeriodEnd = new Date(periodStart)
+  prevPeriodEnd.setDate(prevPeriodEnd.getDate() - 1)
 
   // 12-week window for sparkline + legacy fourWeeks
   const twelveWeeksMonday = new Date(thisWeekStart)
   twelveWeeksMonday.setDate(twelveWeeksMonday.getDate() - 11 * 7)
 
   // Nested fetch window = the widest of (period+previous), 12 weeks
-  let fetchStart: Date | null
-  if (period === 'all') {
-    fetchStart = null
-  } else {
-    fetchStart = prevPeriodStart! < twelveWeeksMonday ? prevPeriodStart! : twelveWeeksMonday
-  }
+  const fetchStart = prevPeriodStart < twelveWeeksMonday ? prevPeriodStart : twelveWeeksMonday
 
   let nestedQuery = supabase
     .from('seances')
-    .select('id, type, date, exos(id, nom, series(id, poids, reps, rir, degressive))')
+    .select('id, type, date, exos(id, exercises(nom), series(id, poids, reps, rir, degressive))')
     .order('date', { ascending: false })
+    // Borne le pire cas (period=all) : sans limite la requête nested rapatrie tout
+    // l'historique avec ses séries. 500 = même cap que /api/seances et la requête PR.
+    // Une fenêtre bornée (12 sem max) reste très en deçà de 500 séances.
+    .limit(500)
   if (fetchStart) {
     nestedQuery = nestedQuery.gte('date', isoDate(fetchStart))
   }
@@ -132,11 +131,11 @@ export async function GET(req: Request) {
   type PRRow = {
     poids: number
     reps: number
-    exos: { nom: string; seances: { date: string } | null } | null
+    exos: { exercises: { nom: string } | null; seances: { date: string } | null } | null
   }
   const { data: prRows } = (await supabase
     .from('series')
-    .select('poids, reps, exos!inner(nom, seances!inner(date))')
+    .select('poids, reps, exos!inner(exercises!inner(nom), seances!inner(date))')
     .order('poids', { ascending: false })
     .limit(500)) as unknown as { data: PRRow[] | null }
 
@@ -147,11 +146,8 @@ export async function GET(req: Request) {
     return true
   }
 
-  const periodList = period === 'all' ? list : list.filter((s) => inRange(s.date, periodStart, now))
-  const prevList =
-    period === 'all'
-      ? []
-      : list.filter((s) => inRange(s.date, prevPeriodStart, prevPeriodEnd))
+  const periodList = list.filter((s) => inRange(s.date, periodStart, now))
+  const prevList = list.filter((s) => inRange(s.date, prevPeriodStart, prevPeriodEnd))
 
   // ----- HERO (period) -----
   let pVolume = 0
@@ -212,47 +208,45 @@ export async function GET(req: Request) {
   const exoVol = new Map<string, number>()
   for (const s of periodList) {
     for (const e of s.exos ?? []) {
+      const nom = e.exercises?.nom
+      if (!nom) continue
       let v = 0
       for (const sr of e.series ?? []) v += sr.poids * sr.reps
-      exoVol.set(e.nom, (exoVol.get(e.nom) ?? 0) + v)
+      exoVol.set(nom, (exoVol.get(nom) ?? 0) + v)
     }
   }
   const exoVolPrev = new Map<string, number>()
   for (const s of prevList) {
     for (const e of s.exos ?? []) {
+      const nom = e.exercises?.nom
+      if (!nom) continue
       let v = 0
       for (const sr of e.series ?? []) v += sr.poids * sr.reps
-      exoVolPrev.set(e.nom, (exoVolPrev.get(e.nom) ?? 0) + v)
+      exoVolPrev.set(nom, (exoVolPrev.get(nom) ?? 0) + v)
     }
   }
 
   // Sparkline buckets per top exo over the period (8 buckets)
   const BUCKETS = 8
-  let bucketStart: Date
-  let bucketSizeMs: number
-  if (period === 'all' || !periodStart) {
-    bucketStart = new Date(twelveWeeksMonday)
-    bucketSizeMs = (12 * 7 * 86400000) / BUCKETS
-  } else {
-    bucketStart = new Date(periodStart)
-    const totalMs = now.getTime() + 86400000 - bucketStart.getTime()
-    bucketSizeMs = totalMs / BUCKETS
-  }
+  const bucketStart = new Date(periodStart)
+  const bucketSizeMs = (now.getTime() + 86400000 - bucketStart.getTime()) / BUCKETS
   const bucketIndex = (d: string) => {
     const t = new Date(d + 'T00:00:00').getTime()
     return Math.max(0, Math.min(BUCKETS - 1, Math.floor((t - bucketStart.getTime()) / bucketSizeMs)))
   }
   const exoSparks = new Map<string, number[]>()
-  const periodSource = period === 'all' ? list : periodList
+  const periodSource = periodList
   for (const s of periodSource) {
     const bi = bucketIndex(s.date)
     for (const e of s.exos ?? []) {
+      const nom = e.exercises?.nom
+      if (!nom) continue
       let v = 0
       for (const sr of e.series ?? []) v += sr.poids * sr.reps
       if (v === 0) continue
-      const arr = exoSparks.get(e.nom) ?? new Array(BUCKETS).fill(0)
+      const arr = exoSparks.get(nom) ?? new Array(BUCKETS).fill(0)
       arr[bi] += v
-      exoSparks.set(e.nom, arr)
+      exoSparks.set(nom, arr)
     }
   }
 
@@ -262,7 +256,7 @@ export async function GET(req: Request) {
     .map(([nom, volume]) => {
       const volumePrev = exoVolPrev.get(nom) ?? 0
       let trendPct: number | null = null
-      if (period !== 'all' && volumePrev > 0) {
+      if (volumePrev > 0) {
         trendPct = Math.round(((volume - volumePrev) / volumePrev) * 100)
       }
       return {
@@ -292,7 +286,7 @@ export async function GET(req: Request) {
   // ----- RECENT PRS (with date) -----
   const prByExo = new Map<string, { poids: number; reps: number; date: string }>()
   for (const r of prRows ?? []) {
-    const nom = r.exos?.nom
+    const nom = r.exos?.exercises?.nom
     const dt = r.exos?.seances?.date
     if (!nom || !dt) continue
     const cur = prByExo.get(nom)
@@ -351,10 +345,17 @@ export async function GET(req: Request) {
 
   let weekSeances = 0
   let weekSeries = 0
+  // Volume par jour de la semaine courante (Lun→Dim) → courbe « rythme » sur l'accueil.
+  const weekDaily = new Array(7).fill(0) as number[]
   for (const s of list) {
     const seanceDate = new Date(s.date + 'T00:00:00')
     if (seanceDate >= thisWeekStart) {
       weekSeances++
+      const dayIdx = Math.min(
+        6,
+        Math.max(0, Math.floor((seanceDate.getTime() - thisWeekStart.getTime()) / 86400000)),
+      )
+      weekDaily[dayIdx] += sumSeanceVolume(s)
       for (const e of s.exos ?? []) {
         weekSeries += e.series?.length ?? 0
       }
@@ -376,7 +377,7 @@ export async function GET(req: Request) {
         null,
       )
       return {
-        nom: e.nom,
+        nom: e.exercises?.nom ?? '',
         topSet: top ? { poids: top.poids, reps: top.reps } : null,
       }
     })
@@ -405,6 +406,7 @@ export async function GET(req: Request) {
       volumePrev: prevWeekVolume,
       seances: weekSeances,
       series: weekSeries,
+      daily: weekDaily,
     },
     lastSeance: lastSeanceData,
     fourWeeks: {
@@ -420,7 +422,7 @@ export async function GET(req: Request) {
     period,
     hero: {
       volume: pVolume,
-      volumePrev: period === 'all' ? null : prevVolume,
+      volumePrev: prevVolume,
       seances: periodList.length,
       series: pSeries,
       avgLoad: pPoidsCount > 0 ? Math.round(pPoidsSum / pPoidsCount) : 0,

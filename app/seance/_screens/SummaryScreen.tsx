@@ -1,11 +1,13 @@
 'use client'
 
 import { Dispatch, SetStateAction, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { Serie, SessionState, WorkoutStep } from '../_lib/types'
 import { WORKOUT_TYPES } from '../_lib/constants'
-import { formatSessionAsText } from '../_lib/helpers'
-import { invalidateExosCache } from '../_lib/useExos'
-import { Button, Card, IconButton, TopBar } from '../_components/primitives'
+import { fmtChargeLabel, formatSessionAsText } from '../_lib/helpers'
+import { invalidateAfterSeanceMutation } from '../_lib/invalidate'
+import { useProfileHeader } from '../_lib/useProfileHeader'
+import { Button, Card, IconButton, Pill, TopBar } from '../_components/primitives'
 import { Check, ChevronDown, ChevronLeft, Copy, Minus, Plus, X } from '../_components/icons'
 
 type Props = {
@@ -16,6 +18,7 @@ type Props = {
 }
 
 export function SummaryScreen({ session, setSession, nav, resetSession }: Props) {
+  const profileHeader = useProfileHeader()
   const nonEmptyExos = session.exos?.filter((e) => e.series.length > 0) ?? []
   const totalSets = nonEmptyExos.reduce((a, e) => a + e.series.length, 0)
   const totalVolume = nonEmptyExos.reduce(
@@ -83,7 +86,10 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
     })
 
   const handleCopy = async () => {
-    const text = formatSessionAsText({ ...session, exos: countedExos })
+    const text = formatSessionAsText(
+      { ...session, exos: countedExos },
+      profileHeader,
+    )
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text)
@@ -126,7 +132,7 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
         setSaveStatus('error')
         return
       }
-      invalidateExosCache()
+      invalidateAfterSeanceMutation()
       setSaveStatus('saved')
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : 'Erreur réseau')
@@ -149,7 +155,7 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
   return (
     <div
       className="app-scroll"
-      style={{ minHeight: '100%', background: 'var(--bg)' }}
+      style={{ minHeight: '100%', background: 'transparent' }}
     >
       <TopBar
         leading={
@@ -162,7 +168,7 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
         title="Séance terminée"
         subtitle="Vérifie et confirme"
       />
-      <div style={{ padding: '4px 16px 30px', animation: 'fadeUp 360ms ease both' }}>
+      <div style={{ padding: '4px 16px 210px', animation: 'fadeUp 360ms ease both' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
           <div
             style={{
@@ -319,15 +325,26 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div
                       style={{
-                        fontSize: 13,
-                        fontWeight: 600,
-                        color: 'var(--ink)',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        minWidth: 0,
                       }}
                     >
-                      {exo.nom}
+                      <span
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: 'var(--ink)',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {exo.nom}
+                      </span>
+                      {exo.isBodyweight && <Pill tone="accent">PDC</Pill>}
+                      {exo.isUnilateral && <Pill tone="neutral">uni</Pill>}
                     </div>
                     {!isEmpty && !expanded && (
                       <div
@@ -343,7 +360,7 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
                         {topSet && (
                           <>
                             <span style={{ color: 'var(--subtle)' }}> · top </span>
-                            {topSet.poids}kg×{topSet.reps ?? 'JSP'}
+                            {fmtChargeLabel(topSet.poids, exo.isBodyweight)}×{topSet.reps ?? 'JSP'}
                             <span style={{ color: 'var(--subtle)' }}> · vol </span>
                             {exoVolume.toLocaleString('fr-FR')}kg
                           </>
@@ -408,6 +425,7 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
                         key={s.tempId || si}
                         index={si}
                         serie={s}
+                        isBodyweight={exo.isBodyweight}
                         onPatch={(patch) => updateSerie(exoIdx, si, patch)}
                         onDelete={() => deleteSerie(exoIdx, si)}
                       />
@@ -466,7 +484,24 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
             Ajouter un exercice
           </button>
         </div>
+      </div>
 
+      {/* Barre d'actions collée en bas du viewport. Portalisée sur <body> :
+          le will-change:transform du StepSwitcher capture position:fixed. */}
+      {createPortal(
+      <div
+        style={{
+          position: 'fixed',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 30,
+          padding: '14px 16px max(22px, env(safe-area-inset-bottom))',
+          background: 'linear-gradient(180deg, transparent, var(--bg) 35%)',
+          pointerEvents: 'none',
+        }}
+      >
+        <div style={{ maxWidth: 480, margin: '0 auto', pointerEvents: 'auto' }}>
         {saveStatus === 'saved' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div
@@ -613,7 +648,10 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
             </Button>
           </div>
         )}
-      </div>
+        </div>
+      </div>,
+        document.body,
+      )}
     </div>
   )
 }
@@ -621,11 +659,13 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
 function EditableSerieRow({
   index,
   serie,
+  isBodyweight,
   onPatch,
   onDelete,
 }: {
   index: number
   serie: Serie
+  isBodyweight?: boolean
   onPatch: (patch: Partial<Serie>) => void
   onDelete: () => void
 }) {
@@ -659,6 +699,23 @@ function EditableSerieRow({
       >
         {index + 1}
       </div>
+      {isBodyweight && (
+        <span
+          style={{
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: 0.3,
+            color: 'var(--accent)',
+            background: 'var(--accent-soft)',
+            padding: '2px 5px',
+            borderRadius: 5,
+            flexShrink: 0,
+          }}
+          title="poids du corps — lest"
+        >
+          {serie.poids > 0 ? 'PDC+' : 'PDC'}
+        </span>
+      )}
       <StepperCell
         value={serie.poids}
         onChange={(v) => onPatch({ poids: Math.max(0, v ?? 0) })}

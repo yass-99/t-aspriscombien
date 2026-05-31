@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createSupabaseServer } from '../../../lib/supabase-server'
+import { resolveExerciseId } from '../../../lib/exercises'
 
 type SerieIn = {
   poids: number
@@ -10,6 +11,8 @@ type SerieIn = {
 }
 type ExoIn = {
   nom: string
+  isBodyweight?: boolean
+  isUnilateral?: boolean
   series: SerieIn[]
 }
 type PutBody = {
@@ -27,7 +30,12 @@ type SerieRow = {
   degressive: boolean
   recup: number
 }
-type ExoRow = { id: string; nom: string; series: SerieRow[] | null }
+type ExoRow = {
+  id: string
+  // nom + flags proviennent du join exercises (exercise_id).
+  exercises: { nom: string; is_bodyweight: boolean | null; is_unilateral: boolean | null } | null
+  series: SerieRow[] | null
+}
 type SeanceRow = {
   id: string
   type: string
@@ -53,7 +61,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
   const supabase = createSupabaseServer(token)
   const { data, error } = (await supabase
     .from('seances')
-    .select('id, date, type, exos(id, nom, series(id, poids, reps, rir, degressive, recup))')
+    .select('id, date, type, exos(id, exercises(nom, is_bodyweight, is_unilateral), series(id, poids, reps, rir, degressive, recup))')
     .eq('id', id)
     .single()) as unknown as { data: SeanceRow | null; error: { message: string } | null }
 
@@ -80,7 +88,9 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
     restTargetSec,
     exos: (data.exos ?? []).map((e) => ({
       id: e.id,
-      nom: e.nom,
+      nom: e.exercises?.nom ?? '',
+      isBodyweight: !!e.exercises?.is_bodyweight,
+      isUnilateral: !!e.exercises?.is_unilateral,
       series: (e.series ?? []).map((s) => ({
         id: s.id,
         poids: s.poids,
@@ -140,9 +150,23 @@ export async function PUT(req: NextRequest, ctx: RouteCtx) {
   // Re-insert exos + series
   for (const exo of body.exos) {
     if (!exo.nom?.trim() || !exo.series || exo.series.length === 0) continue
+    // nom + flags vivent sur exercises → on résout (ou crée) l'exercice d'abord.
+    const exerciseId = await resolveExerciseId(
+      supabase,
+      userId,
+      exo.nom,
+      !!exo.isBodyweight,
+      !!exo.isUnilateral,
+    )
+    if (exerciseId == null) {
+      return NextResponse.json({ error: 'Échec résolution exercice' }, { status: 500 })
+    }
     const { data: exoRow, error: eErr } = await supabase
       .from('exos')
-      .insert({ seance_id: id, nom: exo.nom.trim() })
+      .insert({
+        seance_id: id,
+        exercise_id: exerciseId,
+      })
       .select('id')
       .single()
     if (eErr || !exoRow) {

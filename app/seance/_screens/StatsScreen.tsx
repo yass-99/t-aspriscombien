@@ -8,17 +8,33 @@ import {
   type DashboardData,
   type DistributionItem,
   type TopExo,
-  type BlindSpot,
-  type RecentPR,
   type Period,
 } from '../_lib/useDashboard'
-import { Card, IconButton, Pill, TopBar } from '../_components/primitives'
-import { ChevronLeft, ChevronRight, Dumbbell, Flame, Timer } from '../_components/icons'
+import { Card, IconButton, TopBar } from '../_components/primitives'
+import { Check, ChevronLeft, ChevronRight, Copy, Dumbbell, Flame, Timer, TrendUp } from '../_components/icons'
+import { useProfileHeader } from '../_lib/useProfileHeader'
+import { useToast } from '../../_components/Toast'
+import { formatPeriodForLLM, periodHasContent } from '../_lib/helpers'
+import { smoothLineFromValues } from '../_lib/smoothPath'
+import { Skeleton, SkeletonChart } from '../_components/Skeleton'
+import { WeightDetailModal } from '../_components/WeightDetailModal'
 import { BodyHeatmap } from '../_components/BodyHeatmap'
-import { HorizontalCardScroll } from '../_components/HorizontalCardScroll'
-import { useHeatmap } from '../_lib/useHeatmap'
+import { LegsHeatmap } from '../_components/LegsHeatmap'
+import { useHeatmap, type HeatmapData } from '../_lib/useHeatmap'
 import { useRuns } from '../_lib/useRuns'
-import { formatChrono, formatRunDate, groupRunsIntoSessions } from '../_lib/runs'
+import { useBodyweight } from '../_lib/useBodyweight'
+import { WeightChart, type WeightPoint } from '../_components/WeightChart'
+import {
+  formatChrono,
+  formatRunDate,
+  groupRunsIntoSessions,
+  computePrSpeedByDistance,
+  computeAvgPrPct,
+  computeAvgSpeed,
+  bucketActivityWindow,
+  bucketWeeklyAvgSpeed,
+  summarizeByDistance,
+} from '../_lib/runs'
 
 type Props = {
   session: SessionState
@@ -31,7 +47,6 @@ const PERIODS: { id: Period; label: string }[] = [
   { id: '7d', label: '7j' },
   { id: '30d', label: '30j' },
   { id: '90d', label: '90j' },
-  { id: 'all', label: 'Tout' },
 ]
 
 const SCOPES: { id: Scope; label: string; accent: string }[] = [
@@ -54,7 +69,6 @@ const fmt = (n: number) => n.toLocaleString('fr-FR')
 // Filtre les runs côté client par période — l'API runs ne supporte pas le filtre
 // de période, donc on l'applique ici pour rester cohérent avec le dashboard muscu.
 function filterRunsByPeriod(runs: Run[], period: Period): Run[] {
-  if (period === 'all') return runs
   const days = period === '7d' ? 7 : period === '30d' ? 30 : 90
   const cutoff = new Date()
   cutoff.setHours(0, 0, 0, 0)
@@ -75,7 +89,7 @@ export function StatsScreen({ nav }: Props) {
 
   const subtitle = useMemo(() => {
     if (loading || runsLoading) return '…'
-    const periodLabel = period === 'all' ? 'tout' : PERIODS.find((p) => p.id === period)?.label
+    const periodLabel = PERIODS.find((p) => p.id === period)?.label
     if (scope === 'muscu') {
       const n = data?.hero.seances ?? 0
       return `${n} séance${n > 1 ? 's' : ''} · ${periodLabel}`
@@ -89,8 +103,33 @@ export function StatsScreen({ nav }: Props) {
     return `${muscu + athle} séance${muscu + athle > 1 ? 's' : ''} · ${periodLabel}`
   }, [scope, period, data, periodRuns, loading, runsLoading])
 
+  // Teinte de la page = couleur du scope : orange en athlé, vert en muscu,
+  // violet en global (chrome). Le halo ambiant ci-dessous la diffuse.
+  const scopeTint =
+    scope === 'muscu' ? 'var(--accent)' : scope === 'athle' ? 'var(--warn)' : 'var(--brand)'
+
   return (
-    <div className="app-scroll" style={{ minHeight: '100%', background: 'var(--bg)' }}>
+    <div
+      className="app-scroll"
+      style={{ minHeight: '100%', background: 'transparent', position: 'relative' }}
+    >
+      {/* Halo ambiant teinté par scope : donne à la page la couleur de sa
+          catégorie et de la matière au verre. Défile avec le contenu ; la
+          couleur se fond en douceur au changement d'onglet. */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 0,
+          pointerEvents: 'none',
+          transition: 'background 420ms ease',
+          // Volontairement léger : juste une teinte en haut + un voile latéral
+          // très diffus, pas un lavis de couleur.
+          background: `radial-gradient(66% 18% at 50% 0%, color-mix(in oklch, ${scopeTint} 11%, transparent) 0%, transparent 72%), radial-gradient(48% 16% at 88% 36%, color-mix(in oklch, ${scopeTint} 6%, transparent) 0%, transparent 76%)`,
+        }}
+      />
+      <div style={{ position: 'relative', zIndex: 1 }}>
       <TopBar
         leading={
           <IconButton
@@ -137,16 +176,18 @@ export function StatsScreen({ nav }: Props) {
               <AthleView
                 periodRuns={periodRuns}
                 allRuns={runs}
+                heatmap={heatmap}
                 loading={runsLoading}
                 period={period}
                 onStart={() => nav('athletics')}
                 onOpenSession={(runIds) =>
-                  nav('athletics_summary', { athleticsRunIds: runIds })
+                  nav('athletics_detail', { athleticsRunIds: runIds })
                 }
               />
             )}
           </motion.div>
         </AnimatePresence>
+      </div>
       </div>
     </div>
   )
@@ -221,7 +262,7 @@ function PeriodSwitch({ value, onChange }: { value: Period; onChange: (p: Period
       aria-label="Période"
       style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
+        gridTemplateColumns: `repeat(${PERIODS.length}, 1fr)`,
         gap: 4,
         padding: 4,
         background: 'var(--surface)',
@@ -240,6 +281,9 @@ function PeriodSwitch({ value, onChange }: { value: Period; onChange: (p: Period
             onClick={() => onChange(p.id)}
             style={{
               position: 'relative',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               height: 34,
               border: 'none',
               borderRadius: 8,
@@ -330,7 +374,7 @@ function GlobalView({
             textTransform: 'uppercase',
           }}
         >
-          Activité {period === 'all' ? 'cumulée' : `· ${PERIODS.find((p) => p.id === period)?.label}`}
+          Activité {`· ${PERIODS.find((p) => p.id === period)?.label}`}
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 4 }}>
           <span
@@ -376,29 +420,11 @@ function GlobalView({
         />
       </div>
 
-      {/* Sparkline volume 12 sem. — vue d'ensemble */}
-      <Section index={1}>
-        <SectionTitle>Évolution muscu · 12 semaines</SectionTitle>
-        <Card style={{ padding: '14px 14px 10px' }}>
-          <Sparkline12w points={data?.hero.sparkline12w ?? []} />
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              marginTop: 6,
-              fontSize: 10,
-              color: 'var(--subtle)',
-              fontFamily: 'var(--mono)',
-            }}
-          >
-            <span>12 sem</span>
-            <span>maintenant</span>
-          </div>
-        </Card>
-      </Section>
+      {/* Export coach — période-conscient : copie le bilan de la période sélectionnée. */}
+      <CopyPeriodButton data={data} runs={runs} period={period} loading={loading} />
 
       {/* Comparatif rapide */}
-      <Section index={2}>
+      <Section index={1}>
         <SectionTitle>Répartition de la période</SectionTitle>
         <Card style={{ padding: 16 }}>
           <RatioBar muscuCount={muscuSeances} athleCount={athleCount} />
@@ -422,6 +448,12 @@ function GlobalView({
             </span>
           </div>
         </Card>
+      </Section>
+
+      {/* Suivi du poids — clique pour le détail */}
+      <Section index={2}>
+        <SectionTitle>Poids de corps</SectionTitle>
+        <GlobalWeightCard period={period} />
       </Section>
     </div>
   )
@@ -507,7 +539,6 @@ function ScopeCard({
   onClick: () => void
 }) {
   const color = tone === 'muscu' ? 'var(--accent)' : 'var(--warn)'
-  const bg = tone === 'muscu' ? 'var(--accent-soft)' : 'color-mix(in oklch, var(--warn) 12%, var(--surface))'
   return (
     <motion.button
       whileTap={{ scale: 0.985 }}
@@ -541,7 +572,9 @@ function ScopeCard({
             width: 26,
             height: 26,
             borderRadius: 8,
-            background: bg,
+            // Plus de tuile teintée : l'icône seule, en couleur (le contour
+            // latéral porte déjà l'identité muscu/athlé).
+            background: 'transparent',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -590,6 +623,85 @@ function ScopeCard({
   )
 }
 
+// Bouton « Copier pour mon coach » période-conscient (scope Global). Construit le
+// bilan à partir des données déjà chargées (DashboardData + runs filtrés période).
+function CopyPeriodButton({
+  data,
+  runs,
+  period,
+  loading,
+}: {
+  data: DashboardData | null
+  runs: Run[]
+  period: Period
+  loading: boolean
+}) {
+  const profile = useProfileHeader()
+  const toast = useToast()
+  const [copied, setCopied] = useState(false)
+  const periodLabel = PERIODS.find((p) => p.id === period)?.label
+
+  const handleCopy = async () => {
+    if (!data || !periodHasContent(data, runs)) {
+      toast.warn('Rien à copier sur cette période.')
+      return
+    }
+    const text = formatPeriodForLLM(data, runs, profile, period)
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.focus()
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setCopied(true)
+      toast.ok(`Bilan ${periodLabel} copié — prêt pour ton coach.`)
+      window.setTimeout(() => setCopied(false), 2400)
+    } catch {
+      toast.warn('Copie impossible — réessaie.')
+    }
+  }
+
+  return (
+    <motion.button
+      whileTap={{ scale: 0.99 }}
+      onClick={handleCopy}
+      disabled={loading}
+      style={{
+        marginTop: 16,
+        width: '100%',
+        appearance: 'none',
+        border: 'none',
+        cursor: loading ? 'default' : 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        height: 44,
+        borderRadius: 12,
+        background: copied ? 'var(--ok)' : 'var(--brand-soft)',
+        color: copied ? 'var(--bg)' : 'var(--brand-bright)',
+        boxShadow: copied ? 'none' : '0 0 0 1px var(--brand-line) inset',
+        fontFamily: 'var(--font)',
+        fontSize: 13,
+        fontWeight: 700,
+        opacity: loading ? 0.6 : 1,
+        transition: 'background 160ms, color 160ms',
+      }}
+    >
+      {copied ? <Check size={16} stroke={2.6} /> : <Copy size={15} />}
+      {copied ? 'Copié' : `Copier pour mon coach · ${periodLabel}`}
+    </motion.button>
+  )
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // MUSCU VIEW (ancien contenu, sans SprintsBlock)
 // ═══════════════════════════════════════════════════════════════════
@@ -612,26 +724,10 @@ function MuscuView({
         <Hero data={data} loading={loading} period={period} />
       </Section>
 
+      {/* Heatmap corporelle = élément principal, juste sous la charge totale. */}
       <Section index={1}>
-        <SectionTitle>Répartition</SectionTitle>
-        <HorizontalCardScroll
-          slides={[
-            {
-              id: 'heatmap',
-              label: 'Vue corporelle',
-              content: (
-                <BodyHeatmap data={heatmap} loading={heatmapLoading} period={period} />
-              ),
-            },
-            {
-              id: 'donut',
-              label: 'Par type de séance',
-              content: (
-                <DistributionCard items={data?.distribution ?? []} loading={loading} />
-              ),
-            },
-          ]}
-        />
+        <SectionTitle>Muscles sollicités</SectionTitle>
+        <BodyHeatmap data={heatmap} loading={heatmapLoading} period={period} />
       </Section>
 
       <Section index={2}>
@@ -639,14 +735,135 @@ function MuscuView({
       </Section>
 
       <Section index={3}>
-        <BlindSpotsBlock items={data?.blindSpots ?? []} loading={loading} />
-      </Section>
-
-      <Section index={4}>
-        <RecentPrsBlock items={data?.recentPrs ?? []} loading={loading} />
+        <SectionTitle>Répartition</SectionTitle>
+        <DistributionCard items={data?.distribution ?? []} loading={loading} />
       </Section>
     </>
   )
+}
+
+// ───────────────────────── Bodyweight (suivi du poids, scope global) ─────────────────────────
+// Carte résumée cliquable : ouvre le modal détaillé (courbe, stats, historique, saisie).
+function GlobalWeightCard({ period }: { period: Period }) {
+  const { bodyweights, loading } = useBodyweight()
+  const [detailOpen, setDetailOpen] = useState(false)
+
+  const points: WeightPoint[] = useMemo(() => {
+    const mapped = bodyweights.map((b) => ({ date: b.date, value: b.poidsKg }))
+    const days = period === '7d' ? 7 : period === '30d' ? 30 : 90
+    const cutoff = new Date()
+    cutoff.setHours(0, 0, 0, 0)
+    cutoff.setDate(cutoff.getDate() - days)
+    return mapped.filter((p) => new Date(p.date + 'T00:00:00').getTime() >= cutoff.getTime())
+  }, [bodyweights, period])
+
+  // Dernière pesée connue, même hors période — pour ne jamais afficher « — ».
+  const latest = bodyweights.length ? bodyweights[bodyweights.length - 1].poidsKg : null
+  const current = points.length ? points[points.length - 1].value : latest
+  const first = points.length ? points[0].value : null
+  const delta = points.length >= 2 && first != null && current != null ? current - first : null
+
+  return (
+    <>
+      <motion.button
+        whileTap={{ scale: 0.99 }}
+        onClick={() => setDetailOpen(true)}
+        style={{
+          appearance: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          width: '100%',
+          textAlign: 'left',
+          padding: 16,
+          borderRadius: 14,
+          background: 'var(--surface)',
+          boxShadow: '0 0 0 1px var(--line) inset',
+          fontFamily: 'var(--font)',
+        }}
+      >
+        {loading ? (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <Skeleton width={26} height={26} radius={8} />
+              <Skeleton width={92} height={24} />
+              <span style={{ flex: 1 }} />
+              <Skeleton width={16} height={16} radius="var(--radius-sm)" />
+            </div>
+            <SkeletonChart height={64} />
+          </>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 8,
+                  background: 'var(--accent-soft)',
+                  color: 'var(--accent)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <TrendUp size={15} />
+              </span>
+              <span
+                style={{
+                  fontFamily: 'var(--mono)',
+                  fontSize: 26,
+                  fontWeight: 600,
+                  letterSpacing: -0.8,
+                  color: 'var(--ink)',
+                }}
+              >
+                {current != null ? fmtPoidsStat(current) : '—'}
+                {current != null && (
+                  <span style={{ fontSize: 13, color: 'var(--subtle)', marginLeft: 3 }}>kg</span>
+                )}
+              </span>
+              {delta != null && delta !== 0 && (
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    fontFamily: 'var(--mono)',
+                    color: 'var(--muted)',
+                  }}
+                >
+                  {delta > 0 ? '▲' : '▼'} {delta > 0 ? '+' : '−'}
+                  {fmtPoidsStat(Math.abs(delta))} kg
+                </span>
+              )}
+              <span style={{ flex: 1 }} />
+              <ChevronRight size={16} color="var(--subtle)" />
+            </div>
+            {points.length >= 2 ? (
+              <WeightChart points={points} />
+            ) : (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: 'var(--muted)',
+                  fontFamily: 'var(--mono)',
+                }}
+              >
+                {bodyweights.length === 0
+                  ? 'Note ta première pesée pour lancer le suivi.'
+                  : 'Touche pour voir le détail et ajouter une pesée.'}
+              </div>
+            )}
+          </>
+        )}
+      </motion.button>
+      <WeightDetailModal open={detailOpen} onClose={() => setDetailOpen(false)} />
+    </>
+  )
+}
+
+function fmtPoidsStat(n: number): string {
+  return (Number.isInteger(n) ? String(n) : n.toFixed(1)).replace('.', ',')
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -655,6 +872,7 @@ function MuscuView({
 function AthleView({
   periodRuns,
   allRuns,
+  heatmap,
   loading,
   period,
   onStart,
@@ -663,12 +881,46 @@ function AthleView({
   periodRuns: Run[]
   // allRuns sert au calcul des PR « tous temps » même si la période est restreinte.
   allRuns: Run[]
+  heatmap: HeatmapData | null
   loading: boolean
   period: Period
   onStart: () => void
   onOpenSession: (runIds: string[]) => void
 }) {
   const sessions = useMemo(() => groupRunsIntoSessions(periodRuns), [periodRuns])
+
+  // PR-speed par distance sur l'historique complet → utilisé pour les %PR de la période.
+  const prSpeedByDistance = useMemo(
+    () => computePrSpeedByDistance(allRuns),
+    [allRuns],
+  )
+
+  // Allure moyenne et intensité (%PR) de la période sélectionnée.
+  const periodAvgSpeed = useMemo(() => computeAvgSpeed(periodRuns), [periodRuns])
+  const periodAvgPrPct = useMemo(
+    () => computeAvgPrPct(periodRuns, prSpeedByDistance),
+    [periodRuns, prSpeedByDistance],
+  )
+
+  // Sparkline 12 semaines : allure moyenne hebdomadaire (m/s) sur tous les runs.
+  const weeklySpeed12w = useMemo(() => bucketWeeklyAvgSpeed(allRuns, 12), [allRuns])
+
+  // Tendance allure : moyenne 7 derniers jours vs moyenne 12 sem (hors les 7 derniers).
+  const trendPct = useMemo(() => {
+    if (weeklySpeed12w.length < 2) return null
+    const last = weeklySpeed12w[weeklySpeed12w.length - 1]
+    const previous = weeklySpeed12w.slice(0, -1).filter((v) => v > 0)
+    if (last === 0 || previous.length === 0) return null
+    const avgPrev = previous.reduce((a, b) => a + b, 0) / previous.length
+    if (avgPrev === 0) return null
+    return Math.round(((last - avgPrev) / avgPrev) * 100)
+  }, [weeklySpeed12w])
+
+  // Distribution des distances pour l'histogramme.
+  const distancesPeriod = useMemo(() => summarizeByDistance(periodRuns), [periodRuns])
+
+  // Fenêtre de régularité = la période sélectionnée.
+  const regularityDays = period === '7d' ? 7 : period === '30d' ? 30 : 90
 
   // PRs par distance — toujours basés sur l'historique complet, pas la période,
   // car un PR est un record absolu, indépendant de la fenêtre temporelle.
@@ -697,7 +949,6 @@ function AthleView({
   // PRs battus pendant la période ? On les marque pour mettre un Flame.
   const prsBeatenInPeriod = useMemo(() => {
     const set = new Set<string>()
-    if (period === 'all') return set
     // Pour chaque distance, regarde si le PR (le plus rapide de l'historique)
     // tombe dans la fenêtre période → c'est un PR battu récemment.
     for (const pr of prByDistance) {
@@ -706,7 +957,7 @@ function AthleView({
     return set
   }, [prByDistance, periodRuns, period])
 
-  const periodLabel = period === 'all' ? 'tout' : PERIODS.find((p) => p.id === period)?.label
+  const periodLabel = PERIODS.find((p) => p.id === period)?.label
   const chronoCount = periodRuns.length
 
   if (loading) {
@@ -735,7 +986,8 @@ function AthleView({
                 width: 44,
                 height: 44,
                 borderRadius: 12,
-                background: 'color-mix(in oklch, var(--warn) 16%, var(--surface))',
+                // Icône seule, en orange, sans tuile teintée.
+                background: 'transparent',
                 color: 'var(--warn)',
                 display: 'flex',
                 alignItems: 'center',
@@ -829,6 +1081,44 @@ function AthleView({
             Pas de chrono sur cette période.
           </div>
         )}
+        {periodAvgSpeed > 0 && (
+          <div
+            style={{
+              marginTop: 6,
+              display: 'flex',
+              alignItems: 'baseline',
+              flexWrap: 'wrap',
+              gap: 10,
+              fontSize: 12,
+              color: 'var(--muted)',
+              fontFamily: 'var(--mono)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            <span>
+              <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>
+                {periodAvgSpeed.toFixed(2).replace('.', ',')}
+              </span>{' '}
+              m/s allure moy.
+            </span>
+            {trendPct !== null && (
+              <span
+                style={{
+                  color: trendPct >= 0 ? 'var(--warn)' : 'var(--danger, #F87171)',
+                  fontWeight: 600,
+                }}
+              >
+                {trendPct >= 0 ? '↑' : '↓'} {trendPct >= 0 ? '+' : ''}
+                {trendPct} %
+              </span>
+            )}
+            {periodAvgPrPct !== null && (
+              <span style={{ color: 'var(--subtle)' }}>
+                · {Math.round(periodAvgPrPct * 100)} % PR moyen
+              </span>
+            )}
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 14 }}>
           <MicroStat label="Chronos" value={String(chronoCount)} />
           <MicroStat label="Séances" value={String(sessions.length)} />
@@ -864,9 +1154,9 @@ function AthleView({
                       width: 38,
                       height: 30,
                       borderRadius: 8,
-                      background: beatenInPeriod
-                        ? 'color-mix(in oklch, var(--warn) 20%, var(--surface))'
-                        : 'var(--surface-2)',
+                      // Chip neutre pour tous : plus de fond orange muddy. Le
+                      // NEW se lit via le texte orange + la pastille à côté.
+                      background: 'var(--surface-2)',
                       color: beatenInPeriod ? 'var(--warn)' : 'var(--ink-2)',
                       display: 'flex',
                       alignItems: 'center',
@@ -895,9 +1185,27 @@ function AthleView({
                     >
                       {formatChrono(pr.duration_ms)}
                       {beatenInPeriod && (
-                        <Pill tone="warn" icon={<Flame size={9} />}>
+                        // Contour orange, sans fond : l'orange reste, le fond part.
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            height: 22,
+                            padding: '0 8px',
+                            borderRadius: 999,
+                            background: 'transparent',
+                            color: 'var(--warn)',
+                            boxShadow:
+                              '0 0 0 1px color-mix(in oklch, var(--warn) 45%, transparent) inset',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            fontFamily: 'var(--font)',
+                          }}
+                        >
+                          <Flame size={9} />
                           NEW
-                        </Pill>
+                        </span>
                       )}
                     </div>
                     <div
@@ -919,8 +1227,37 @@ function AthleView({
         </Card>
       </Section>
 
-      {/* Récentes séances athlé */}
+      {/* Régularité — fenêtre = période sélectionnée, paginée par tranches de
+          30 j au-delà de 30 j pour éviter un bloc géant. */}
       <Section index={2}>
+        <RegularitySection allRuns={allRuns} totalDays={regularityDays} />
+      </Section>
+
+      {/* Distribution des distances */}
+      {distancesPeriod.length > 0 && (
+        <Section index={3}>
+          <SectionTitle>Distribution des distances</SectionTitle>
+          <Card style={{ padding: '14px 14px 10px' }}>
+            <DistanceDistribution distances={distancesPeriod} />
+          </Card>
+        </Section>
+      )}
+
+      {/* Muscles sollicités */}
+      {heatmap && heatmap.groups.some((g) => g.running.runs > 0) && (
+        <Section index={4}>
+          <SectionTitle>Muscles sollicités</SectionTitle>
+          <Card style={{ padding: 16 }}>
+            <LegsHeatmap
+              groups={heatmap.groups}
+              maxDistance={heatmap.maxRunningDistance}
+            />
+          </Card>
+        </Section>
+      )}
+
+      {/* Récentes séances athlé */}
+      <Section index={5}>
         <SectionTitle>Séances récentes</SectionTitle>
         <Card style={{ padding: 0, overflow: 'hidden' }}>
           {sessions.length === 0 ? (
@@ -961,7 +1298,8 @@ function AthleView({
                       width: 36,
                       height: 36,
                       borderRadius: 9,
-                      background: 'color-mix(in oklch, var(--warn) 14%, var(--surface))',
+                      // Icône seule, en orange, sans tuile teintée.
+                      background: 'transparent',
                       color: 'var(--warn)',
                       display: 'flex',
                       alignItems: 'center',
@@ -1049,7 +1387,7 @@ function Hero({
           textTransform: 'uppercase',
         }}
       >
-        Volume {period === 'all' ? 'cumulé' : `· ${PERIODS.find((p) => p.id === period)?.label}`}
+        Volume {`· ${PERIODS.find((p) => p.id === period)?.label}`}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
         <span
@@ -1099,23 +1437,7 @@ function Hero({
           <span style={{ color: 'var(--subtle)', fontWeight: 500 }}>vs période -1</span>
         </motion.div>
       )}
-      <Card style={{ padding: '14px 14px 8px', marginTop: 14 }}>
-        <Sparkline12w points={data?.hero.sparkline12w ?? []} />
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            marginTop: 6,
-            fontSize: 10,
-            color: 'var(--subtle)',
-            fontFamily: 'var(--mono)',
-          }}
-        >
-          <span>12 sem</span>
-          <span>maintenant</span>
-        </div>
-      </Card>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 16 }}>
         <MicroStat label="Séances" value={loading ? '…' : String(data?.hero.seances ?? 0)} />
         <MicroStat label="Séries" value={loading ? '…' : String(data?.hero.series ?? 0)} />
         <MicroStat
@@ -1182,63 +1504,6 @@ function CountUp({ value }: { value: number }) {
     return () => controls.stop()
   }, [value, reduced])
   return <>{fmt(Math.round(display))}</>
-}
-
-function Sparkline12w({ points }: { points: number[] }) {
-  const reduced = useReducedMotion()
-  if (points.length < 2 || points.every((p) => p === 0)) {
-    return (
-      <div
-        style={{
-          height: 48,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 11,
-          color: 'var(--subtle)',
-          fontFamily: 'var(--mono)',
-        }}
-      >
-        Pas encore assez de données.
-      </div>
-    )
-  }
-  const max = Math.max(...points, 1)
-  const W = 320
-  const H = 48
-  const step = W / (points.length - 1)
-  const d = points
-    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${i * step} ${H - (p / max) * (H - 6) - 3}`)
-    .join(' ')
-  const fillD = `${d} L ${W} ${H} L 0 ${H} Z`
-  return (
-    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden>
-      <defs>
-        <linearGradient id="spark12-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.22" />
-          <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <motion.path
-        d={fillD}
-        fill="url(#spark12-fill)"
-        initial={reduced ? false : { opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.35, duration: 0.4 }}
-      />
-      <motion.path
-        d={d}
-        fill="none"
-        stroke="var(--accent)"
-        strokeWidth={1.8}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        initial={reduced ? false : { pathLength: 0 }}
-        animate={{ pathLength: 1 }}
-        transition={{ duration: 0.85, ease: [0.22, 1, 0.36, 1] }}
-      />
-    </svg>
-  )
 }
 
 // ───────────────────────── Distribution donut ─────────────────────────
@@ -1495,9 +1760,7 @@ function MiniSpark({ points }: { points: number[] }) {
   const W = 64
   const H = 22
   const step = W / (points.length - 1)
-  const d = points
-    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${i * step} ${H - (p / max) * (H - 4) - 2}`)
-    .join(' ')
+  const d = smoothLineFromValues(points, step, (p) => H - (p / max) * (H - 4) - 2)
   return (
     <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden style={{ flexShrink: 0 }}>
       <motion.path
@@ -1513,191 +1776,6 @@ function MiniSpark({ points }: { points: number[] }) {
       />
     </svg>
   )
-}
-
-// ───────────────────────── Blind spots ─────────────────────────
-function BlindSpotsBlock({
-  items,
-  loading,
-}: {
-  items: BlindSpot[]
-  loading: boolean
-}) {
-  const filtered = useMemo(() => {
-    return items
-      .map((b) => ({ ...b, _key: b.daysSince == null ? 1e9 : b.daysSince }))
-      .filter((b) => b.daysSince == null || b.daysSince >= 7)
-      .sort((a, b) => b._key - a._key)
-  }, [items])
-
-  return (
-    <div>
-      <SectionTitle>Angles morts</SectionTitle>
-      <Card style={{ padding: 0 }}>
-        {loading ? (
-          <EmptyLine label="…" />
-        ) : filtered.length === 0 ? (
-          <div
-            style={{
-              padding: '14px 14px',
-              fontSize: 12,
-              color: 'var(--muted)',
-              fontFamily: 'var(--mono)',
-            }}
-          >
-            Rien à signaler. Tout a été vu récemment.
-          </div>
-        ) : (
-          filtered.map((b, i) => (
-            <motion.div
-              key={b.type}
-              initial={{ opacity: 0, x: 6 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.1 + i * 0.05, duration: 0.32 }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '12px 14px',
-                borderTop: i === 0 ? 'none' : '1px solid var(--line-2)',
-              }}
-            >
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 999,
-                  background:
-                    b.daysSince == null || b.daysSince >= 21
-                      ? '#F87171'
-                      : b.daysSince >= 14
-                        ? '#FBBF24'
-                        : 'var(--muted)',
-                  flexShrink: 0,
-                }}
-                aria-hidden
-              />
-              <div style={{ flex: 1, fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
-                {b.label}
-              </div>
-              <div
-                style={{
-                  fontFamily: 'var(--mono)',
-                  fontSize: 12,
-                  color: 'var(--muted)',
-                  fontVariantNumeric: 'tabular-nums',
-                }}
-              >
-                {b.daysSince == null ? 'jamais' : `${b.daysSince} j`}
-              </div>
-            </motion.div>
-          ))
-        )}
-      </Card>
-    </div>
-  )
-}
-
-// ───────────────────────── Recent PRs ─────────────────────────
-function RecentPrsBlock({ items, loading }: { items: RecentPR[]; loading: boolean }) {
-  return (
-    <div>
-      <SectionTitle>Records récents</SectionTitle>
-      {loading ? (
-        <Card style={{ padding: 14 }}>
-          <EmptyLine label="…" />
-        </Card>
-      ) : items.length === 0 ? (
-        <Card style={{ padding: 18 }}>
-          <div
-            style={{
-              fontSize: 13,
-              color: 'var(--muted)',
-              textAlign: 'center',
-              lineHeight: 1.5,
-            }}
-          >
-            Aucun record encore. Enregistre quelques séances pour voir tes PRs.
-          </div>
-        </Card>
-      ) : (
-        <Card style={{ padding: 0 }}>
-          {items.map((pr, i) => (
-            <motion.div
-              key={pr.nom}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 + i * 0.05, duration: 0.32 }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '12px 14px',
-                borderTop: i === 0 ? 'none' : '1px solid var(--line-2)',
-              }}
-            >
-              <div
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 8,
-                  background: 'var(--accent-soft)',
-                  color: 'var(--accent)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                <Flame size={13} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: 'var(--ink)',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                  title={pr.nom}
-                >
-                  {pr.nom}
-                </div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: 'var(--muted)',
-                    fontFamily: 'var(--mono)',
-                    marginTop: 1,
-                    fontVariantNumeric: 'tabular-nums',
-                  }}
-                >
-                  {pr.poids} kg × {pr.reps}
-                </div>
-              </div>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: 'var(--subtle)',
-                  fontFamily: 'var(--mono)',
-                  flexShrink: 0,
-                }}
-              >
-                {formatShortDate(pr.date)}
-              </div>
-            </motion.div>
-          ))}
-        </Card>
-      )}
-    </div>
-  )
-}
-
-function formatShortDate(iso: string): string {
-  const d = new Date(iso + 'T00:00:00')
-  return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' }).format(d).replace('.', '')
 }
 
 // ───────────────────────── Shared bits ─────────────────────────
@@ -1731,6 +1809,323 @@ function EmptyLine({ label }: { label: string }) {
       }}
     >
       {label}
+    </div>
+  )
+}
+
+// ───────────────────────── Athlé : régularité paginée ─────────────────────────
+// Affiche la fenêtre `totalDays`. Au-delà de 30 j, on découpe en tranches de
+// 30 j navigables (flèches) pour éviter un bloc de cases géant.
+const REG_PAGE = 30
+
+function RegularitySection({ allRuns, totalDays }: { allRuns: Run[]; totalDays: number }) {
+  const paged = totalDays > REG_PAGE
+  const pageCount = paged ? Math.ceil(totalDays / REG_PAGE) : 1
+  // page 0 = tranche la plus récente (finissant aujourd'hui).
+  const [page, setPage] = useState(0)
+  // Borne la page si la période change (ex : passage de '90d' à '7d').
+  const safePage = Math.min(page, pageCount - 1)
+
+  // Fenêtre courante : décalage et largeur (la dernière tranche peut être < 30 j).
+  const endDaysAgo = safePage * REG_PAGE
+  const windowDays = paged ? Math.min(REG_PAGE, totalDays - endDaysAgo) : totalDays
+
+  const days = useMemo(
+    () => bucketActivityWindow(allRuns, endDaysAgo, windowDays),
+    [allRuns, endDaysAgo, windowDays],
+  )
+
+  const rangeLabel =
+    days.length > 0
+      ? `${formatRunDate(days[0].date)} – ${formatRunDate(days[days.length - 1].date)}`
+      : ''
+
+  return (
+    <>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 8,
+          paddingLeft: 2,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 11,
+            color: 'var(--muted)',
+            fontWeight: 600,
+            letterSpacing: 0.4,
+            textTransform: 'uppercase',
+          }}
+        >
+          Régularité · {paged ? rangeLabel : `${totalDays} jours`}
+        </span>
+        {paged && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <PagerButton
+              dir="prev"
+              disabled={safePage >= pageCount - 1}
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+            />
+            <span
+              style={{
+                fontFamily: 'var(--mono)',
+                fontSize: 11,
+                color: 'var(--subtle)',
+                minWidth: 34,
+                textAlign: 'center',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {safePage + 1}/{pageCount}
+            </span>
+            <PagerButton
+              dir="next"
+              disabled={safePage <= 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            />
+          </div>
+        )}
+      </div>
+      <Card style={{ padding: 16 }}>
+        <RegularityCalendar days={days} />
+      </Card>
+    </>
+  )
+}
+
+function PagerButton({
+  dir,
+  disabled,
+  onClick,
+}: {
+  dir: 'prev' | 'next'
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onClick}
+      aria-label={dir === 'prev' ? 'Tranche précédente' : 'Tranche suivante'}
+      disabled={disabled}
+      style={{
+        width: 28,
+        height: 28,
+        borderRadius: 8,
+        border: 'none',
+        cursor: disabled ? 'default' : 'pointer',
+        background: 'var(--surface-2)',
+        color: disabled ? 'var(--line)' : 'var(--ink-2)',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      {dir === 'prev' ? <ChevronLeft size={15} /> : <ChevronRight size={15} />}
+    </button>
+  )
+}
+
+// ───────────────────────── Athlé : calendrier régularité ─────────────────────────
+// Calcule le jour de la semaine (lundi=0 ... dimanche=6) pour aligner la grille.
+function weekdayIndex(dateStr: string): number {
+  const d = new Date(dateStr + 'T00:00:00')
+  const day = d.getDay() // dimanche=0 ... samedi=6
+  return (day + 6) % 7 // → lundi=0 ... dimanche=6
+}
+
+function RegularityCalendar({
+  days,
+}: {
+  days: { date: string; isToday: boolean; runs: number }[]
+}) {
+  const reduced = useReducedMotion()
+  if (days.length === 0) return null
+  const firstWeekday = weekdayIndex(days[0].date)
+  const cells: Array<{ kind: 'pad' } | { kind: 'day'; d: (typeof days)[number]; idx: number }> = []
+  for (let i = 0; i < firstWeekday; i++) cells.push({ kind: 'pad' })
+  days.forEach((d, idx) => cells.push({ kind: 'day', d, idx }))
+  // Pad final pour compléter la dernière ligne de 7.
+  while (cells.length % 7 !== 0) cells.push({ kind: 'pad' })
+
+  const activeCount = days.filter((d) => d.runs > 0).length
+  const pct = Math.round((activeCount / days.length) * 100)
+
+  const cellBg = (runs: number): string => {
+    if (runs <= 0) return 'var(--surface-2)'
+    const intensity = Math.min(100, 30 + runs * 25)
+    return `color-mix(in oklch, var(--warn) ${intensity}%, var(--surface-2))`
+  }
+
+  return (
+    <div>
+      {/* Labels jours */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(7, 1fr)',
+          gap: 4,
+          marginBottom: 6,
+          fontSize: 9,
+          color: 'var(--subtle)',
+          fontFamily: 'var(--mono)',
+          textAlign: 'center',
+        }}
+        aria-hidden
+      >
+        {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((l, i) => (
+          <span key={i}>{l}</span>
+        ))}
+      </div>
+
+      {/* Grille des cellules */}
+      <div
+        role="grid"
+        aria-label={`Activité ${days.length} jours`}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(7, 1fr)',
+          gap: 4,
+        }}
+      >
+        {cells.map((c, i) => {
+          if (c.kind === 'pad') {
+            return <div key={`pad-${i}`} aria-hidden style={{ aspectRatio: '1', opacity: 0 }} />
+          }
+          const d = c.d
+          return (
+            <motion.div
+              key={d.date}
+              role="gridcell"
+              aria-label={`${formatRunDate(d.date)}, ${d.runs} chrono${d.runs > 1 ? 's' : ''}`}
+              initial={reduced ? false : { opacity: 0, scale: 0.85 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{
+                delay: reduced ? 0 : 0.02 * c.idx,
+                duration: 0.25,
+                ease: [0.22, 1, 0.36, 1],
+              }}
+              style={{
+                aspectRatio: '1',
+                borderRadius: 6,
+                background: cellBg(d.runs),
+                boxShadow: d.isToday ? '0 0 0 1.5px var(--ink) inset' : 'none',
+              }}
+            />
+          )
+        })}
+      </div>
+
+      {/* Compteur résumé */}
+      <div
+        style={{
+          marginTop: 10,
+          fontSize: 11,
+          color: 'var(--subtle)',
+          fontFamily: 'var(--mono)',
+          textAlign: 'center',
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{activeCount}</span> jour
+        {activeCount > 1 ? 's' : ''} actif{activeCount > 1 ? 's' : ''} sur {days.length} ·{' '}
+        <span style={{ color: 'var(--warn)', fontWeight: 600 }}>{pct} %</span> de régularité
+      </div>
+    </div>
+  )
+}
+
+// ───────────────────────── Athlé : histogramme distribution distances ─────────────────────────
+function DistanceDistribution({
+  distances,
+}: {
+  distances: Array<{
+    distance_m: number
+    count: number
+    best?: Run
+  }>
+}) {
+  const reduced = useReducedMotion()
+  // Tri par count desc pour mettre en avant la distance la plus pratiquée.
+  const sorted = [...distances].sort((a, b) => b.count - a.count)
+  const maxCount = sorted.reduce((m, d) => (d.count > m ? d.count : m), 1)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {sorted.map((d, i) => {
+        const width = Math.max(4, (d.count / maxCount) * 100)
+        return (
+          <motion.div
+            key={d.distance_m}
+            initial={reduced ? false : { opacity: 0, x: 6 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: reduced ? 0 : 0.05 + i * 0.04, duration: 0.3 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+          >
+            {/* Label distance */}
+            <div
+              style={{
+                width: 50,
+                fontFamily: 'var(--mono)',
+                fontSize: 12,
+                color: 'var(--ink-2)',
+                fontWeight: 600,
+                fontVariantNumeric: 'tabular-nums',
+                flexShrink: 0,
+              }}
+            >
+              {d.distance_m}m
+            </div>
+            {/* Barre */}
+            <div
+              style={{
+                flex: 1,
+                height: 8,
+                borderRadius: 4,
+                background: 'var(--line)',
+                overflow: 'hidden',
+              }}
+              aria-hidden
+            >
+              <motion.div
+                initial={reduced ? false : { width: 0 }}
+                animate={{ width: `${width}%` }}
+                transition={{
+                  delay: reduced ? 0 : 0.15 + i * 0.04,
+                  duration: 0.6,
+                  ease: [0.22, 1, 0.36, 1],
+                }}
+                style={{
+                  height: '100%',
+                  background: 'var(--warn)',
+                }}
+              />
+            </div>
+            {/* Count + top chrono */}
+            <div
+              style={{
+                fontFamily: 'var(--mono)',
+                fontSize: 11,
+                color: 'var(--muted)',
+                fontVariantNumeric: 'tabular-nums',
+                flexShrink: 0,
+                minWidth: 70,
+                textAlign: 'right',
+              }}
+            >
+              ×{d.count}
+              {d.best && (
+                <span style={{ color: 'var(--subtle)', marginLeft: 6 }}>
+                  {formatChrono(d.best.duration_ms)}
+                </span>
+              )}
+            </div>
+          </motion.div>
+        )
+      })}
     </div>
   )
 }

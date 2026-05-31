@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, CSSProperties, ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Minus, Plus } from './icons'
 
 // ─── Button ────────────────────────────────────────────────────────
@@ -16,6 +17,7 @@ export function Button({
   trailingIcon,
   full = true,
   disabled = false,
+  gpu = false,
   style = {},
 }: {
   children?: ReactNode
@@ -26,10 +28,32 @@ export function Button({
   trailingIcon?: ReactNode
   full?: boolean
   disabled?: boolean
+  gpu?: boolean
   style?: CSSProperties
 }) {
   const [hover, setHover] = useState(false)
   const [pressed, setPressed] = useState(false)
+  const [gpuWarm, setGpuWarm] = useState(!gpu)
+
+  useEffect(() => {
+    if (!gpu) {
+      setGpuWarm(true)
+      return
+    }
+    setGpuWarm(false)
+    const id = requestAnimationFrame(() => setGpuWarm(true))
+    return () => cancelAnimationFrame(id)
+  }, [gpu])
+
+  const scale = pressed ? 0.97 : 1
+  const z = gpu && !gpuWarm ? 0.01 : 0
+  const gpuStyle: CSSProperties = gpu
+    ? {
+        willChange: 'transform',
+        backfaceVisibility: 'hidden',
+        WebkitBackfaceVisibility: 'hidden',
+      }
+    : {}
 
   const base: CSSProperties = {
     appearance: 'none',
@@ -43,29 +67,34 @@ export function Button({
     letterSpacing: -0.1,
     transition: 'transform 120ms ease, background 120ms ease, box-shadow 160ms ease, color 120ms',
     width: full ? '100%' : 'auto',
-    transform: pressed ? 'scale(0.985)' : 'scale(1)',
+    transform: gpu ? `translateZ(${z}px) scale(${scale})` : `scale(${scale})`,
     opacity: disabled ? 0.45 : 1,
     fontFamily: 'var(--font)',
+    ...gpuStyle,
   }
+  // Tout bouton est une pilule (cf. DESIGN.md : radius-full).
   const sizes: Record<ButtonSize, CSSProperties> = {
-    lg: { height: 52, padding: '0 18px', borderRadius: 12, fontSize: 16 },
-    md: { height: 44, padding: '0 16px', borderRadius: 10, fontSize: 15 },
-    sm: { height: 34, padding: '0 12px', borderRadius: 8, fontSize: 13 },
+    lg: { height: 52, padding: '0 22px', borderRadius: 'var(--radius-full)', fontSize: 16 },
+    md: { height: 44, padding: '0 18px', borderRadius: 'var(--radius-full)', fontSize: 15 },
+    sm: { height: 34, padding: '0 14px', borderRadius: 'var(--radius-full)', fontSize: 13 },
   }
+  // Élévation = surface + hairline, pas d'ombre. Exception §5 : glow diffus sur le
+  // primaire (CTA le plus loud de l'écran).
   const variants: Record<ButtonVariant, CSSProperties> = {
     primary: {
+      // Marque = violet (cf. DESIGN.md §1). Glow diffus toléré : CTA le plus loud.
       background: hover
-        ? 'color-mix(in oklch, var(--accent) 88%, black)'
-        : 'var(--accent)',
-      color: 'var(--accent-ink)',
+        ? 'color-mix(in oklch, var(--brand) 86%, white)'
+        : 'var(--brand)',
+      color: 'var(--brand-ink)',
       boxShadow: hover
-        ? '0 12px 30px -10px color-mix(in oklch, var(--accent) 60%, transparent)'
-        : '0 6px 18px -8px color-mix(in oklch, var(--accent) 45%, transparent)',
+        ? '0 12px 34px -10px color-mix(in oklch, var(--brand) 70%, transparent)'
+        : '0 8px 22px -10px color-mix(in oklch, var(--brand) 55%, transparent)',
     },
     secondary: {
       background: hover ? 'var(--surface-2)' : 'var(--surface)',
       color: 'var(--ink)',
-      boxShadow: '0 0 0 1px var(--line) inset',
+      boxShadow: '0 0 0 1px var(--hairline) inset',
     },
     ghost: {
       background: hover ? 'var(--surface-2)' : 'transparent',
@@ -76,7 +105,7 @@ export function Button({
         ? 'color-mix(in oklch, var(--danger) 18%, var(--surface))'
         : 'var(--surface)',
       color: 'var(--danger)',
-      boxShadow: '0 0 0 1px color-mix(in oklch, var(--danger) 28%, var(--line)) inset',
+      boxShadow: '0 0 0 1px color-mix(in oklch, var(--danger) 28%, var(--hairline)) inset',
     },
   }
 
@@ -106,29 +135,42 @@ export function Card({
   children,
   style = {},
   interactive = false,
+  glass = true,
   onClick,
 }: {
   children?: ReactNode
   style?: CSSProperties
   interactive?: boolean
+  // Verre dépoli sombre — translucide + backdrop-blur, highlight en haut.
+  glass?: boolean
   onClick?: () => void
 }) {
   const [hover, setHover] = useState(false)
+  // Plus de liseré teinté accent (« cheap ») : la profondeur vient du hairline
+  // neutre, qui s'éclaire légèrement au hover. cf. DESIGN.md §5.
+  const ring = hover && interactive ? 'var(--glass-border)' : 'var(--hairline)'
+  const glassStyle: CSSProperties = glass
+    ? {
+        background: hover && interactive ? 'var(--glass-strong)' : 'var(--glass)',
+        backdropFilter: 'blur(22px) saturate(1.5)',
+        WebkitBackdropFilter: 'blur(22px) saturate(1.5)',
+        boxShadow: `0 0 0 1px ${ring} inset, 0 1px 0 var(--glass-highlight) inset`,
+      }
+    : {
+        background: 'var(--surface-elevated)',
+        boxShadow: `0 0 0 1px ${ring} inset`,
+      }
   return (
     <div
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
-        background: 'var(--surface)',
-        borderRadius: 'var(--radius)',
-        boxShadow:
-          hover && interactive
-            ? '0 0 0 1px color-mix(in oklch, var(--line) 60%, var(--accent-line)) inset, 0 12px 32px -12px rgba(0,0,0,0.6)'
-            : '0 0 0 1px var(--line) inset, 0 1px 2px rgba(0,0,0,0.3)',
-        transition: 'box-shadow 180ms ease, transform 120ms',
-        transform: hover && interactive ? 'translateY(-1px)' : 'none',
+        borderRadius: 'var(--radius-lg)',
+        transition: 'box-shadow 180ms ease, transform 140ms cubic-bezier(0.22, 1, 0.36, 1), background 180ms ease',
+        transform: hover && interactive ? 'scale(1.006)' : 'scale(1)',
         cursor: interactive ? 'pointer' : 'default',
+        ...glassStyle,
         ...style,
       }}
     >
@@ -264,11 +306,11 @@ export function NumericInput({
           display: 'flex',
           alignItems: 'center',
           height: sz.h,
-          background: 'var(--surface)',
-          borderRadius: 14,
+          background: 'var(--surface-2)',
+          borderRadius: 'var(--radius-md)',
           boxShadow: focus
-            ? '0 0 0 1.5px var(--accent) inset, 0 0 0 4px color-mix(in oklch, var(--accent) 22%, transparent)'
-            : '0 0 0 1px var(--line) inset',
+            ? '0 0 0 1.5px var(--brand) inset, 0 0 0 4px color-mix(in oklch, var(--brand) 22%, transparent)'
+            : '0 0 0 1px var(--hairline) inset',
           transition: 'box-shadow 160ms',
         }}
       >
@@ -377,7 +419,7 @@ export function Segmented<T extends string>({
         display: 'inline-flex',
         padding: 4,
         background: 'var(--surface-2)',
-        borderRadius: 10,
+        borderRadius: 'var(--radius-full)',
         width: '100%',
       }}
     >
@@ -393,14 +435,12 @@ export function Segmented<T extends string>({
               padding: '0 12px',
               border: 'none',
               cursor: 'pointer',
-              background: active ? 'var(--surface)' : 'transparent',
+              background: active ? 'var(--surface-elevated)' : 'transparent',
               color: active ? 'var(--ink)' : 'var(--muted)',
               fontWeight: active ? 600 : 500,
               fontSize: 13,
-              borderRadius: 8,
-              boxShadow: active
-                ? '0 1px 2px rgba(0,0,0,0.40), 0 0 0 1px var(--line)'
-                : 'none',
+              borderRadius: 'var(--radius-full)',
+              boxShadow: active ? '0 0 0 1px var(--hairline) inset' : 'none',
               transition: 'all 160ms ease',
             }}
           >
@@ -434,7 +474,7 @@ export function Toggle({
         borderRadius: 999,
         border: 'none',
         cursor: 'pointer',
-        background: checked ? 'var(--accent)' : 'var(--surface-2)',
+        background: checked ? 'var(--brand)' : 'var(--surface-2)',
         position: 'relative',
         padding: 0,
         transition: 'background 200ms',
@@ -448,7 +488,7 @@ export function Toggle({
           width: t,
           height: t,
           borderRadius: 999,
-          background: checked ? 'var(--accent-ink)' : 'var(--ink)',
+          background: checked ? 'var(--brand-ink)' : 'var(--ink)',
           boxShadow: '0 1px 2px rgba(0,0,0,0.40), 0 1px 0 rgba(0,0,0,0.20)',
           transition: 'left 200ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
@@ -469,7 +509,7 @@ export function Pill({
 }) {
   const tones = {
     neutral: { bg: 'var(--surface-2)', fg: 'var(--ink-2)', border: 'transparent' },
-    accent: { bg: 'var(--accent-soft)', fg: 'var(--accent)', border: 'transparent' },
+    accent: { bg: 'var(--brand-soft)', fg: 'var(--brand-bright)', border: 'transparent' },
     ok: { bg: 'color-mix(in oklch, var(--ok) 18%, var(--surface))', fg: 'var(--ok)', border: 'transparent' },
     warn: { bg: 'color-mix(in oklch, var(--warn) 18%, var(--surface))', fg: 'var(--warn)', border: 'transparent' },
     outline: { bg: 'transparent', fg: 'var(--muted)', border: 'var(--line)' },
@@ -586,7 +626,7 @@ export function IconButton({
   const styles =
     variant === 'ghost'
       ? { bg: hover ? 'var(--surface-2)' : 'transparent', ring: 'transparent', color: 'var(--ink-2)' }
-      : { bg: hover ? 'var(--surface-2)' : 'var(--surface)', ring: 'var(--line)', color: 'var(--ink-2)' }
+      : { bg: hover ? 'var(--surface-2)' : 'var(--surface)', ring: 'var(--hairline)', color: 'var(--ink-2)' }
   return (
     <button
       onClick={onClick}
@@ -596,7 +636,7 @@ export function IconButton({
       style={{
         width: 36,
         height: 36,
-        borderRadius: 10,
+        borderRadius: 'var(--radius-full)',
         border: 'none',
         cursor: 'pointer',
         background: styles.bg,
@@ -624,7 +664,7 @@ export function Steps({ count, current }: { count: number; current: number }) {
             height: 4,
             borderRadius: 2,
             width: i === current ? 24 : 16,
-            background: i <= current ? 'var(--accent)' : 'var(--line)',
+            background: i <= current ? 'var(--brand)' : 'var(--line)',
             transition: 'all 240ms cubic-bezier(0.22, 1, 0.36, 1)',
           }}
         />
@@ -641,19 +681,24 @@ export function FinishPill({
 }: {
   onClick?: () => void
   label?: string
-  tone?: 'accent' | 'danger'
+  tone?: 'accent' | 'danger' | 'warn'
 }) {
   const [hover, setHover] = useState(false)
   const isDanger = tone === 'danger'
-  const color = isDanger ? 'var(--danger)' : 'var(--accent)'
+  const isWarn = tone === 'warn'
+  const color = isDanger ? 'var(--danger)' : isWarn ? 'var(--warn)' : 'var(--brand-bright)'
   const hoverBg = isDanger
     ? 'color-mix(in oklch, var(--danger) 16%, var(--surface))'
-    : 'var(--accent-soft)'
+    : isWarn
+      ? 'color-mix(in oklch, var(--warn) 16%, var(--surface))'
+      : 'var(--brand-soft)'
   const ring = hover
     ? color
     : isDanger
       ? 'color-mix(in oklch, var(--danger) 38%, var(--line))'
-      : 'var(--accent-line)'
+      : isWarn
+        ? 'color-mix(in oklch, var(--warn) 38%, var(--line))'
+        : 'var(--brand-line)'
   return (
     <button
       onClick={onClick}
@@ -684,7 +729,7 @@ export function FinishPill({
   )
 }
 
-function StopSquare({ size = 10, color = 'currentColor' }: { size?: number; color?: string }) {
+export function StopSquare({ size = 10, color = 'currentColor' }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 10 10" aria-hidden>
       <rect x="1" y="1" width="8" height="8" rx="1.5" fill={color} />
@@ -701,6 +746,8 @@ export function ConfirmDialog({
   cancelLabel = 'Annuler',
   tone = 'danger',
   busy = false,
+  busyLabel,
+  placement = 'center',
   onConfirm,
   onCancel,
 }: {
@@ -711,9 +758,14 @@ export function ConfirmDialog({
   cancelLabel?: string
   tone?: 'danger' | 'primary'
   busy?: boolean
+  busyLabel?: string
+  // 'center' = dialog classique ; 'bottom' = feuille ancrée en bas (pouce).
+  placement?: 'center' | 'bottom'
   onConfirm: () => void
   onCancel: () => void
 }) {
+  // Portal sur <body> : passe au-dessus de tout et échappe au stacking context
+  // d'un parent animé (StepSwitcher) qui piégerait un position:fixed.
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -723,9 +775,14 @@ export function ConfirmDialog({
     return () => window.removeEventListener('keydown', onKey)
   }, [open, busy, onCancel])
 
-  if (!open) return null
+  // Le contenu n'apparaît qu'à l'ouverture (interaction client) : un simple garde
+  // SSR suffit, inutile d'attendre un effet de montage (qui déclencherait un
+  // setState-in-effect).
+  if (!open || typeof document === 'undefined') return null
 
-  return (
+  const bottom = placement === 'bottom'
+
+  const content = (
     <div
       role="dialog"
       aria-modal="true"
@@ -735,14 +792,14 @@ export function ConfirmDialog({
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 100,
+        zIndex: 1000,
         background: 'color-mix(in oklch, var(--bg) 70%, transparent)',
         backdropFilter: 'blur(6px)',
         WebkitBackdropFilter: 'blur(6px)',
         display: 'flex',
-        alignItems: 'center',
+        alignItems: bottom ? 'flex-end' : 'center',
         justifyContent: 'center',
-        padding: 20,
+        padding: bottom ? 0 : 20,
         animation: 'dialogFadeIn 160ms ease both',
       }}
     >
@@ -750,15 +807,35 @@ export function ConfirmDialog({
         onClick={(e) => e.stopPropagation()}
         style={{
           width: '100%',
-          maxWidth: 360,
-          background: 'var(--surface)',
-          borderRadius: 16,
+          maxWidth: bottom ? 440 : 360,
+          background: 'var(--surface-elevated)',
+          borderRadius: bottom
+            ? 'var(--radius-xl) var(--radius-xl) 0 0'
+            : 'var(--radius-xl)',
+          // Le scrim isole déjà du fond → profondeur portée par le hairline,
+          // ombre réduite au minimum (élément flottant au-dessus du scrim).
           boxShadow:
-            '0 0 0 1px var(--line) inset, 0 30px 60px -20px rgba(0,0,0,0.6)',
-          padding: 20,
-          animation: 'dialogPopIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both',
+            '0 0 0 1px var(--hairline-strong) inset, 0 20px 50px -24px rgba(0,0,0,0.7)',
+          padding: bottom
+            ? '20px 20px calc(20px + env(safe-area-inset-bottom, 0px))'
+            : 20,
+          animation: bottom
+            ? 'sheetUp 260ms cubic-bezier(0.22, 1, 0.36, 1) both'
+            : 'dialogPopIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both',
         }}
       >
+        {bottom && (
+          <div
+            aria-hidden
+            style={{
+              width: 36,
+              height: 4,
+              borderRadius: 999,
+              background: 'var(--line-2)',
+              margin: '-4px auto 14px',
+            }}
+          />
+        )}
         <div
           style={{
             fontSize: 16,
@@ -793,10 +870,12 @@ export function ConfirmDialog({
             onClick={onConfirm}
             disabled={busy}
           >
-            {busy ? 'Suppression…' : confirmLabel}
+            {busy ? busyLabel ?? 'Patiente…' : confirmLabel}
           </Button>
         </div>
       </div>
     </div>
   )
+
+  return createPortal(content, document.body)
 }

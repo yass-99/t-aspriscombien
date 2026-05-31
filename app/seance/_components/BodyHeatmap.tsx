@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react'
 import { Card, Segmented } from './primitives'
+import { Dumbbell, Timer } from './icons'
 import type { HeatmapData, HeatmapGroup, MuscleGroupKey } from '../_lib/useHeatmap'
+import { formatChrono, formatChronoShort } from '../_lib/runs'
 import {
   BODY_VIEWBOX,
   FACE_GROUPS,
@@ -61,28 +63,78 @@ const MUSCLE_LABEL: Record<MuscleGroupKey, string> = {
   core: 'Core',
 }
 
-// ─── Palette d'intensité : cyan froid → lime chaud ───────────────────
-function intensityColor(score: number): string {
-  if (score <= 0) return 'var(--surface-2)'
-  if (score <= 0.25) return '#164E63'
-  if (score <= 0.5) return '#22D3EE'
-  if (score <= 0.75) return 'color-mix(in oklch, var(--accent) 60%, var(--bg))'
-  return 'var(--accent)'
+// Muscles potentiellement sollicités par la course (sprint courte distance).
+// Source : mapping en base de l'exercice global "Sprint courte distance".
+// Sert à masquer le bloc "Course" du popover pour les muscles du haut du corps
+// qui ne peuvent jamais être affectés — leur afficher "Pas de course" est un
+// faux signal qui pollue la lecture.
+const RUNNING_AFFECTED_MUSCLES: ReadonlySet<MuscleGroupKey> = new Set([
+  'quads',
+  'glutes',
+  'hamstrings',
+  'calves',
+])
+
+function isRunningEligible(key: MuscleGroupKey, data: HeatmapGroup): boolean {
+  if (RUNNING_AFFECTED_MUSCLES.has(key)) return true
+  // Défense : si le mapping change en base et qu'un muscle "haut du corps" a
+  // été crédité de runs, on l'affiche quand même pour ne pas perdre la donnée.
+  return data.running.runs > 0
 }
 
-function intensityGlow(score: number): string | undefined {
-  if (score > 0.75) {
-    return 'drop-shadow(0 0 6px color-mix(in oklch, var(--accent) 55%, transparent))'
-  }
-  return undefined
+// ─── Visuel bivarié par muscle ───────────────────────────────────────
+// `total` ∈ [0,1] code l'intensité globale (saturation).
+// `chargeRatio` ∈ [0,1] code la nature : 0 = course pure (ambre), 1 = charge pure (vert),
+// intermédiaire = teinte mixée vert↔ambre. Implémenté via color-mix nested CSS.
+type Visual = {
+  chargeNorm: number
+  courseNorm: number
+  total: number
+  chargeRatio: number
 }
 
-function intensityLabel(score: number): string {
-  if (score <= 0) return 'non travaillé'
-  if (score <= 0.25) return 'léger'
-  if (score <= 0.5) return 'modéré'
-  if (score <= 0.75) return 'solide'
+function visualFor(g: HeatmapGroup, maxW: number, maxR: number): Visual {
+  const chargeNorm = maxW > 0 ? g.weighted.volume / maxW : 0
+  const courseNorm = maxR > 0 ? g.running.distance / maxR : 0
+  const total = Math.max(chargeNorm, courseNorm)
+  const denom = chargeNorm + courseNorm
+  const chargeRatio = denom > 0 ? chargeNorm / denom : 0.5
+  return { chargeNorm, courseNorm, total, chargeRatio }
+}
+
+function bivariateBase(chargeRatio: number): string {
+  const pct = Math.round(chargeRatio * 100)
+  return `color-mix(in oklch, var(--accent) ${pct}%, var(--warn))`
+}
+
+function bivariateColor(total: number, chargeRatio: number): string {
+  if (total <= 0) return 'var(--surface-2)'
+  const base = bivariateBase(chargeRatio)
+  if (total <= 0.25) return `color-mix(in oklch, ${base} 30%, var(--surface-2))`
+  if (total <= 0.5) return `color-mix(in oklch, ${base} 55%, var(--surface-2))`
+  if (total <= 0.75) return `color-mix(in oklch, ${base} 80%, var(--surface-2))`
+  return base
+}
+
+function bivariateGlow(total: number, chargeRatio: number): string | undefined {
+  if (total <= 0.75) return undefined
+  const base = bivariateBase(chargeRatio)
+  return `drop-shadow(0 0 6px color-mix(in oklch, ${base} 55%, transparent))`
+}
+
+function intensityLabel(total: number): string {
+  if (total <= 0) return 'non travaillé'
+  if (total <= 0.25) return 'léger'
+  if (total <= 0.5) return 'modéré'
+  if (total <= 0.75) return 'solide'
   return 'très chargé'
+}
+
+function natureLabel(v: Visual): string {
+  if (v.chargeNorm > 0 && v.courseNorm > 0) return 'en charge et en course'
+  if (v.chargeNorm > 0) return 'en charge'
+  if (v.courseNorm > 0) return 'en course'
+  return ''
 }
 
 const fmt = (n: number) => n.toLocaleString('fr-FR')
@@ -106,8 +158,10 @@ export function BodyHeatmap({
   useEffect(() => {
     if (typeof window === 'undefined') return
     const saved = window.localStorage.getItem(VIEW_STORAGE_KEY)
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (saved === 'face' || saved === 'back') setView(saved)
+    if (saved === 'face' || saved === 'back') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setView(saved)
+    }
   }, [])
 
   const handleViewChange = (v: View) => {
@@ -118,24 +172,21 @@ export function BodyHeatmap({
     }
   }
 
-  const { scoreMap, groupMap } = useMemo(() => {
-    const sm: Partial<Record<MuscleGroupKey, number>> = {}
+  const { visualMap, groupMap } = useMemo(() => {
+    const vm: Partial<Record<MuscleGroupKey, Visual>> = {}
     const gm: Partial<Record<MuscleGroupKey, HeatmapGroup>> = {}
-    if (data && data.maxVolume > 0) {
-      for (const g of data.groups) {
-        sm[g.groupKey] = g.volume / data.maxVolume
-        gm[g.groupKey] = g
-      }
-    } else if (data) {
-      for (const g of data.groups) {
-        sm[g.groupKey] = 0
-        gm[g.groupKey] = g
-      }
+    if (!data) return { visualMap: vm, groupMap: gm }
+    const maxW = data.maxWeightedVolume
+    const maxR = data.maxRunningDistance
+    for (const g of data.groups) {
+      gm[g.groupKey] = g
+      vm[g.groupKey] = visualFor(g, maxW, maxR)
     }
-    return { scoreMap: sm, groupMap: gm }
+    return { visualMap: vm, groupMap: gm }
   }, [data])
 
   const activeData = activeGroup ? groupMap[activeGroup] : null
+  const activeVisual = activeGroup ? visualMap[activeGroup] : null
 
   return (
     <Card style={{ padding: 16 }}>
@@ -177,7 +228,7 @@ export function BodyHeatmap({
             <BodyView
               view={view}
               loading={loading}
-              scoreMap={scoreMap}
+              visualMap={visualMap}
               activeGroup={activeGroup}
               onSelect={setActiveGroup}
               reduced={reduced ?? false}
@@ -187,10 +238,10 @@ export function BodyHeatmap({
 
         {/* Popover muscle */}
         <AnimatePresence>
-          {activeData && (
+          {activeData && activeVisual && (
             <MusclePopover
               data={activeData}
-              score={scoreMap[activeData.groupKey] ?? 0}
+              visual={activeVisual}
               onClose={() => setActiveGroup(null)}
             />
           )}
@@ -251,14 +302,14 @@ function Header({ period }: { period: string }) {
 function BodyView({
   view,
   loading,
-  scoreMap,
+  visualMap,
   activeGroup,
   onSelect,
   reduced,
 }: {
   view: View
   loading: boolean
-  scoreMap: Partial<Record<MuscleGroupKey, number>>
+  visualMap: Partial<Record<MuscleGroupKey, Visual>>
   activeGroup: MuscleGroupKey | null
   onSelect: (g: MuscleGroupKey | null) => void
   reduced: boolean
@@ -294,7 +345,9 @@ function BodyView({
       {/* Groupes musculaires interactifs */}
       {(Object.entries(mapping) as Array<[MuscleGroupKey, readonly string[]]>).map(
         ([ourKey, mwIds], i) => {
-          const score = loading ? 0 : scoreMap[ourKey] ?? 0
+          const visual = loading
+            ? { chargeNorm: 0, courseNorm: 0, total: 0, chargeRatio: 0.5 }
+            : (visualMap[ourKey] ?? { chargeNorm: 0, courseNorm: 0, total: 0, chargeRatio: 0.5 })
           const isActive = activeGroup === ourKey
           const paths = mwIds.flatMap((id) => groups[id] ?? [])
           if (paths.length === 0) return null
@@ -303,7 +356,7 @@ function BodyView({
               key={`${view}-${ourKey}`}
               ourKey={ourKey}
               paths={paths}
-              score={score}
+              visual={visual}
               loading={loading}
               isActive={isActive}
               index={i}
@@ -321,7 +374,7 @@ function BodyView({
 function MuscleGroupZone({
   ourKey,
   paths,
-  score,
+  visual,
   loading,
   isActive,
   index,
@@ -330,21 +383,23 @@ function MuscleGroupZone({
 }: {
   ourKey: MuscleGroupKey
   paths: string[]
-  score: number
+  visual: Visual
   loading: boolean
   isActive: boolean
   index: number
   reduced: boolean
   onSelect: () => void
 }) {
-  const fill = intensityColor(score)
-  const filter = intensityGlow(score)
+  const fill = bivariateColor(visual.total, visual.chargeRatio)
+  const filter = bivariateGlow(visual.total, visual.chargeRatio)
+  const nature = natureLabel(visual)
+  const ariaSuffix = nature ? `, ${nature}, intensité ${intensityLabel(visual.total)}` : ''
 
   return (
     <g
       role="button"
       tabIndex={0}
-      aria-label={`${MUSCLE_LABEL[ourKey]}, intensité ${intensityLabel(score)}`}
+      aria-label={`${MUSCLE_LABEL[ourKey]}${ariaSuffix}`}
       onClick={onSelect}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -378,19 +433,18 @@ function MuscleGroupZone({
   )
 }
 
-// ─── Popover muscle (au tap) ─────────────────────────────────────────
+// ─── Popover muscle (au tap) — dual charge + course ──────────────────
 function MusclePopover({
   data,
-  score,
+  visual,
   onClose,
 }: {
   data: HeatmapGroup
-  score: number
+  visual: Visual
   onClose: () => void
 }) {
   const ref = useRef<HTMLDivElement | null>(null)
 
-  // Fermeture au clic extérieur
   useEffect(() => {
     const handler = (e: Event) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -408,7 +462,6 @@ function MusclePopover({
     }
   }, [onClose])
 
-  // Fermeture à Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -448,93 +501,293 @@ function MusclePopover({
             padding: '0 7px',
             height: 18,
             borderRadius: 999,
-            background: intensityColor(score),
-            color: score > 0.5 ? 'var(--accent-ink)' : 'var(--ink)',
+            background: bivariateColor(visual.total, visual.chargeRatio),
+            color: visual.total > 0.5 ? 'var(--accent-ink)' : 'var(--ink)',
             fontSize: 10,
             fontWeight: 600,
             textTransform: 'lowercase',
             letterSpacing: 0.2,
           }}
         >
-          {intensityLabel(score)}
+          {intensityLabel(visual.total)}
         </span>
       </div>
-      <div
-        style={{
-          display: 'flex',
-          gap: 14,
-          marginTop: 8,
-          fontSize: 11,
-          color: 'var(--muted)',
-          fontFamily: 'var(--mono)',
-          fontVariantNumeric: 'tabular-nums',
-        }}
+
+      {/* Bloc Charge */}
+      <PopoverSection
+        icon={<Dumbbell size={12} color="var(--accent)" />}
+        title="Charge"
+        accent="var(--accent)"
+        empty={data.weighted.volume === 0 && data.weighted.series === 0}
+        emptyLabel="Pas de charge sur la période"
       >
         <span>
-          <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{fmt(data.volume)}</span>
-          <span style={{ marginLeft: 3 }}>kg</span>
+          <span style={{ color: 'var(--ink)', fontWeight: 600 }}>
+            {fmt(data.weighted.volume)}
+          </span>{' '}
+          kg
         </span>
         <span>
-          <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{data.series}</span>
-          <span style={{ marginLeft: 3 }}>{data.series > 1 ? 'séries' : 'série'}</span>
+          <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{data.weighted.series}</span>{' '}
+          {data.weighted.series > 1 ? 'séries' : 'série'}
         </span>
         <span style={{ marginLeft: 'auto', color: 'var(--subtle)' }}>
-          {data.lastSessionDaysAgo == null
-            ? 'jamais'
-            : data.lastSessionDaysAgo === 0
-              ? 'aujourd’hui'
-              : `il y a ${data.lastSessionDaysAgo} j`}
+          {formatDaysAgo(data.weighted.lastSessionDaysAgo)}
         </span>
-      </div>
+      </PopoverSection>
+
+      {/* Bloc Course — masqué pour les muscles que la course ne sollicite jamais */}
+      {isRunningEligible(data.groupKey, data) && (
+        <>
+          <PopoverSection
+            icon={<Timer size={12} color="var(--warn)" />}
+            title="Course"
+            accent="var(--warn)"
+            empty={data.running.runs === 0}
+            emptyLabel="Pas de course sur la période"
+          >
+            <span>
+              <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{fmt(data.running.distance)}</span>{' '}
+              m
+            </span>
+            <span>
+              <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{data.running.runs}</span>{' '}
+              {data.running.runs > 1 ? 'chronos' : 'chrono'}
+            </span>
+            {data.running.duration > 0 && (
+              <span style={{ color: 'var(--subtle)' }}>{formatChronoShort(data.running.duration)}</span>
+            )}
+            <span style={{ marginLeft: 'auto', color: 'var(--subtle)' }}>
+              {formatDaysAgo(data.running.lastSessionDaysAgo)}
+            </span>
+          </PopoverSection>
+
+          {data.running.avgPrPct !== null && data.running.runs > 0 && (
+            <PrIntensityBar avgPrPct={data.running.avgPrPct} bestRun={data.running.bestRun} />
+          )}
+        </>
+      )}
     </motion.div>
   )
 }
 
-// ─── Légende ─────────────────────────────────────────────────────────
-function Legend() {
-  const stops = [0, 0.2, 0.4, 0.65, 1]
+// ─── Sous-bloc d'une section dans le popover ─────────────────────────
+function PopoverSection({
+  icon,
+  title,
+  accent,
+  empty,
+  emptyLabel,
+  children,
+}: {
+  icon: React.ReactNode
+  title: string
+  accent: string
+  empty: boolean
+  emptyLabel: string
+  children: React.ReactNode
+}) {
   return (
-    <div
-      style={{
-        marginTop: 14,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-      }}
-      aria-hidden
-    >
-      <span style={{ fontSize: 10, color: 'var(--subtle)', fontFamily: 'var(--mono)' }}>peu</span>
-      <div style={{ display: 'flex', gap: 4, flex: 1 }}>
-        {stops.map((s, i) => (
-          <div
-            key={i}
-            style={{
-              flex: 1,
-              height: 10,
-              borderRadius: 3,
-              background: intensityColor(s),
-              filter: intensityGlow(s),
-            }}
-          />
-        ))}
+    <div style={{ marginTop: 10 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: 0.4,
+          textTransform: 'uppercase',
+          color: empty ? 'var(--subtle)' : accent,
+        }}
+      >
+        {icon}
+        {title}
       </div>
-      <span style={{ fontSize: 10, color: 'var(--subtle)', fontFamily: 'var(--mono)' }}>max</span>
+      {empty ? (
+        <div
+          style={{
+            marginTop: 4,
+            fontSize: 11,
+            color: 'var(--subtle)',
+            fontFamily: 'var(--mono)',
+          }}
+        >
+          {emptyLabel}
+        </div>
+      ) : (
+        <div
+          style={{
+            display: 'flex',
+            gap: 12,
+            marginTop: 4,
+            fontSize: 11,
+            color: 'var(--muted)',
+            fontFamily: 'var(--mono)',
+            fontVariantNumeric: 'tabular-nums',
+            flexWrap: 'wrap',
+          }}
+        >
+          {children}
+        </div>
+      )}
     </div>
   )
+}
+
+// ─── Barre d'intensité %PR (sous le bloc Course) ─────────────────────
+function PrIntensityBar({
+  avgPrPct,
+  bestRun,
+}: {
+  avgPrPct: number
+  bestRun: HeatmapGroup['running']['bestRun']
+}) {
+  const reduced = useReducedMotion()
+  const pctRound = Math.round(avgPrPct * 100)
+  const width = Math.min(100, Math.max(2, pctRound))
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          fontSize: 10,
+          color: 'var(--subtle)',
+          fontFamily: 'var(--mono)',
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        <span>Intensité moyenne</span>
+        <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{pctRound} % PR</span>
+      </div>
+      <div
+        style={{
+          marginTop: 4,
+          height: 5,
+          borderRadius: 3,
+          background: 'var(--line)',
+          overflow: 'hidden',
+        }}
+        aria-hidden
+      >
+        <motion.div
+          initial={reduced ? false : { width: 0 }}
+          animate={{ width: `${width}%` }}
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          style={{
+            height: '100%',
+            background: 'var(--warn)',
+          }}
+        />
+      </div>
+      {bestRun && (
+        <div
+          style={{
+            marginTop: 5,
+            fontSize: 10,
+            color: 'var(--subtle)',
+            fontFamily: 'var(--mono)',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          top : {formatChrono(bestRun.duration_ms)} sur {bestRun.distance_m}m ·{' '}
+          {Math.round(bestRun.prPct * 100)} % PR
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Légende bivariée ────────────────────────────────────────────────
+function Legend() {
+  return (
+    <div style={{ marginTop: 14 }} aria-hidden>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: 8,
+        }}
+      >
+        <LegendSwatch color={bivariateColor(1, 1)} label="charge" />
+        <LegendSwatch color={bivariateColor(1, 0.5)} label="les deux" />
+        <LegendSwatch color={bivariateColor(1, 0)} label="course" />
+      </div>
+      <div
+        style={{
+          marginTop: 8,
+          fontSize: 10,
+          color: 'var(--subtle)',
+          fontFamily: 'var(--mono)',
+          textAlign: 'center',
+          letterSpacing: 0.3,
+        }}
+      >
+        plus c&apos;est saturé, plus c&apos;est travaillé
+      </div>
+    </div>
+  )
+}
+
+function LegendSwatch({ color, label }: { color: string; label: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span
+        style={{
+          width: 14,
+          height: 14,
+          borderRadius: 4,
+          background: color,
+          flexShrink: 0,
+        }}
+      />
+      <span
+        style={{
+          fontSize: 11,
+          color: 'var(--muted)',
+          fontFamily: 'var(--mono)',
+        }}
+      >
+        {label}
+      </span>
+    </div>
+  )
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────
+function formatDaysAgo(days: number | null): string {
+  if (days == null) return 'jamais'
+  if (days === 0) return 'aujourd’hui'
+  return `il y a ${days} j`
 }
 
 // ─── Résumé textuel pour lecteurs d'écran ────────────────────────────
 function summarize(data: HeatmapData | null, view: View): string {
   if (!data) return 'Heatmap : chargement.'
-  const trained = data.groups.filter((g) => g.volume > 0).length
-  const total = data.groups.length
-  const top = [...data.groups].sort((a, b) => b.volume - a.volume).slice(0, 3)
-  const topText = top
-    .filter((g) => g.volume > 0)
+  const viewLabel = view === 'face' ? 'face' : 'dos'
+  const trainedWeighted = data.groups.filter((g) => g.weighted.volume > 0)
+  const trainedRunning = data.groups.filter((g) => g.running.runs > 0)
+  if (trainedWeighted.length === 0 && trainedRunning.length === 0) {
+    return `Heatmap vue ${viewLabel} : aucun groupe musculaire travaillé sur la période.`
+  }
+  const topW = [...trainedWeighted]
+    .sort((a, b) => b.weighted.volume - a.weighted.volume)
+    .slice(0, 3)
     .map((g) => g.label)
     .join(', ')
-  const viewLabel = view === 'face' ? 'face' : 'dos'
-  if (trained === 0)
-    return `Heatmap vue ${viewLabel} : aucun groupe musculaire travaillé sur la période.`
-  return `Heatmap vue ${viewLabel} : ${trained} groupes sur ${total} travaillés. Plus chargés : ${topText}.`
+  const topR = [...trainedRunning]
+    .sort((a, b) => b.running.distance - a.running.distance)
+    .slice(0, 3)
+    .map((g) => g.label)
+    .join(', ')
+  const parts: string[] = []
+  if (trainedWeighted.length > 0) {
+    parts.push(`Plus chargés en muscu : ${topW}.`)
+  }
+  if (trainedRunning.length > 0) {
+    parts.push(`Plus sollicités en course : ${topR}.`)
+  }
+  return `Heatmap vue ${viewLabel}. ${parts.join(' ')}`
 }

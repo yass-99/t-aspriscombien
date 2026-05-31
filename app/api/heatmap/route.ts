@@ -18,13 +18,9 @@ const ROLE_WEIGHT: Record<string, number> = {
 }
 
 // Nom de l'exercice global "course/sprint" dans la table exercises.
-// Sert à récupérer ses mappings musculaires pour distribuer le volume des runs.
+// Sert à récupérer les muscles sollicités par la course pour alimenter le bloc
+// `running` du groupe (sans jamais convertir la distance en kg-équivalent).
 const SPRINT_EXERCISE_NAME = 'Sprint courte distance'
-
-// Conversion distance → "kg-équivalent" pour mixer runs et muscu dans la même
-// échelle de heatmap. Calibrage : 100 m ≈ 800 (~ 1 grosse série de squat).
-// À ajuster si le rendu visuel donne trop ou pas assez d'importance aux runs.
-const RUN_VOLUME_PER_METER = 8
 
 // Mapping group_id → clé stable côté frontend.
 // Aligné sur l'ordre du seed : voir rapport §3.2 (table muscle_groups).
@@ -83,7 +79,8 @@ type ExoRow = {
 }
 type SeanceRow = { date: string; exos: ExoRow[] | null }
 
-type RunRow = { date: string; distance_m: number }
+type RunRow = { date: string; distance_m: number; duration_ms: number }
+type AllRunRow = { distance_m: number; duration_ms: number }
 type SprintExerciseRow = { exercise_muscles: ExerciseMuscleRow[] | null }
 
 function isoDate(d: Date): string {
@@ -119,10 +116,11 @@ export async function GET(req: Request) {
   }
 
   // RLS filtre déjà par utilisateur via le JWT Clerk → pas besoin de WHERE user_id ici.
-  // 3 queries en parallèle :
-  //  - séances (avec joins exos/series/exercises/exercise_muscles/muscles)
-  //  - runs sur la période
+  // 4 queries en parallèle :
+  //  - séances de la période (avec joins exos/series/exercises/exercise_muscles/muscles)
+  //  - runs de la période
   //  - mappings musculaires de l'exercice global "Sprint courte distance"
+  //  - tous les runs (pour calculer les PR absolus par distance, indépendants de la période)
   let seancesQuery = supabase
     .from('seances')
     .select(
@@ -135,7 +133,7 @@ export async function GET(req: Request) {
 
   let runsQuery = supabase
     .from('runs')
-    .select('date, distance_m')
+    .select('date, distance_m, duration_ms')
     .order('date', { ascending: false })
   if (periodStart) {
     runsQuery = runsQuery.gte('date', isoDate(periodStart))
@@ -148,43 +146,85 @@ export async function GET(req: Request) {
     .eq('is_global', true)
     .maybeSingle()
 
-  const [seancesRes, runsRes, sprintRes] = (await Promise.all([
+  // PRs absolus : pas de filtre période, on veut le meilleur temps de tous les temps.
+  const allRunsQuery = supabase.from('runs').select('distance_m, duration_ms')
+
+  const [seancesRes, runsRes, sprintRes, allRunsRes] = (await Promise.all([
     seancesQuery,
     runsQuery,
     sprintQuery,
+    allRunsQuery,
   ])) as unknown as [
     { data: SeanceRow[] | null; error: { message: string } | null },
     { data: RunRow[] | null; error: { message: string } | null },
     { data: SprintExerciseRow | null; error: { message: string } | null },
+    { data: AllRunRow[] | null; error: { message: string } | null },
   ]
 
   if (seancesRes.error) {
     return NextResponse.json({ error: seancesRes.error.message }, { status: 500 })
   }
-  // Erreurs sur runs/sprint : on log mais on continue (la heatmap reste partielle
+  // Erreurs sur runs/sprint/allRuns : on log mais on continue (la heatmap reste partielle
   // plutôt que de planter complètement si runs n'est pas encore peuplée).
   const seances = seancesRes.data ?? []
   const runs = runsRes.error ? [] : (runsRes.data ?? [])
   const sprintMappings = sprintRes.error
     ? []
     : (sprintRes.data?.exercise_muscles ?? [])
+  const allRuns = allRunsRes.error ? [] : (allRunsRes.data ?? [])
 
-  // Accumulateur par group_id : volume pondéré + nb séries + date la plus récente.
-  const stats = new Map<
-    number,
-    { volume: number; series: number; lastDate: string | null }
-  >()
-  for (let gid = 1; gid <= 12; gid++) {
-    stats.set(gid, { volume: 0, series: 0, lastDate: null })
+  // PR par distance : meilleure vitesse (m/s) absolue connue pour chaque distance jamais courue.
+  // Permet ensuite de calculer le %PR de chaque run de la période.
+  const prSpeedByDistance = new Map<number, number>()
+  for (const r of allRuns) {
+    if (!r.distance_m || !r.duration_ms || r.duration_ms <= 0) continue
+    const speed = r.distance_m / (r.duration_ms / 1000)
+    const cur = prSpeedByDistance.get(r.distance_m)
+    if (cur == null || speed > cur) prSpeedByDistance.set(r.distance_m, speed)
   }
 
+  // Accumulateur par group_id : un bloc weighted (muscu) et un bloc running (course),
+  // jamais additionnés. La couche UI choisit lequel afficher selon le mode.
+  type Bucket = {
+    weighted: {
+      volume: number
+      series: number
+      lastDate: string | null
+    }
+    running: {
+      distance: number
+      duration: number
+      runs: number
+      // Pour calculer avgPrPct (moyenne pondérée par distance) en fin de boucle.
+      prWeightedSum: number
+      prWeightSum: number
+      bestRun: { distance_m: number; duration_ms: number; prPct: number } | null
+      lastDate: string | null
+    }
+  }
+  const stats = new Map<number, Bucket>()
+  for (let gid = 1; gid <= 12; gid++) {
+    stats.set(gid, {
+      weighted: { volume: 0, series: 0, lastDate: null },
+      running: {
+        distance: 0,
+        duration: 0,
+        runs: 0,
+        prWeightedSum: 0,
+        prWeightSum: 0,
+        bestRun: null,
+        lastDate: null,
+      },
+    })
+  }
+
+  // ─── Muscu : tonnage brut × rôle, par muscle ───────────────────────
   for (const s of seances) {
     for (const e of s.exos ?? []) {
       if (!e.exercise_id || !e.exercises) continue
       const mappings = e.exercises.exercise_muscles ?? []
       if (mappings.length === 0) continue
 
-      // Volume brut de cet exo sur cette séance.
       let exoVolume = 0
       const seriesCount = (e.series ?? []).length
       for (const sr of e.series ?? []) {
@@ -192,36 +232,62 @@ export async function GET(req: Request) {
       }
       if (exoVolume === 0 && seriesCount === 0) continue
 
-      // Distribué sur chaque muscle touché, pondéré par le rôle.
       for (const em of mappings) {
         const gid = em.muscles?.group_id
         if (!gid) continue
         const w = ROLE_WEIGHT[em.role] ?? 0
         if (w === 0) continue
         const cur = stats.get(gid)!
-        cur.volume += exoVolume * w
-        cur.series += seriesCount
-        if (cur.lastDate == null || s.date > cur.lastDate) {
-          cur.lastDate = s.date
+        cur.weighted.volume += exoVolume * w
+        cur.weighted.series += seriesCount
+        if (cur.weighted.lastDate == null || s.date > cur.weighted.lastDate) {
+          cur.weighted.lastDate = s.date
         }
       }
     }
   }
 
-  // Distribution des runs sur les muscles via le mapping de "Sprint courte distance".
-  // Chaque run compte comme 1 « série » et son volume = distance × RUN_VOLUME_PER_METER.
-  if (sprintMappings.length > 0) {
+  // ─── Course : distance + temps + intensité %PR, par muscle ─────────
+  // Les runs sont distribués sur les muscles via le mapping de l'exercice global
+  // "Sprint courte distance" (quads / glutes / hamstrings principalement).
+  // Aucune conversion distance → kg : on garde la sémantique cardio intacte.
+  //
+  // Important : on déduplique les group_id avant la boucle. Un même muscle peut
+  // apparaître plusieurs fois dans exercise_muscles (rôle primary + secondary,
+  // gauche + droit, etc.). Sans dédoublonnage, chaque mètre couru serait compté
+  // N fois par muscle au lieu d'une seule fois. La pondération par rôle n'a pas
+  // de sens pour la distance : tous les mètres courus sollicitent chaque muscle
+  // concerné à 100% de la distance parcourue.
+  const sprintGroupIds = new Set<number>()
+  for (const em of sprintMappings) {
+    const gid = em.muscles?.group_id
+    if (!gid) continue
+    if ((ROLE_WEIGHT[em.role] ?? 0) <= 0) continue
+    sprintGroupIds.add(gid)
+  }
+
+  if (sprintGroupIds.size > 0) {
     for (const r of runs) {
       if (!r.distance_m || r.distance_m <= 0) continue
-      const runVolume = r.distance_m * RUN_VOLUME_PER_METER
-      for (const em of sprintMappings) {
-        const gid = em.muscles?.group_id
-        if (!gid) continue
-        const w = ROLE_WEIGHT[em.role] ?? 0
-        if (w === 0) continue
-        const cur = stats.get(gid)!
-        cur.volume += runVolume * w
-        cur.series += 1
+      if (!r.duration_ms || r.duration_ms <= 0) continue
+      const runSpeed = r.distance_m / (r.duration_ms / 1000)
+      const prSpeed = prSpeedByDistance.get(r.distance_m) ?? runSpeed
+      const prPct = prSpeed > 0 ? runSpeed / prSpeed : 0
+
+      for (const gid of sprintGroupIds) {
+        const cur = stats.get(gid)!.running
+        cur.distance += r.distance_m
+        cur.duration += r.duration_ms
+        cur.runs += 1
+        cur.prWeightedSum += r.distance_m * prPct
+        cur.prWeightSum += r.distance_m
+        if (!cur.bestRun || prPct > cur.bestRun.prPct) {
+          cur.bestRun = {
+            distance_m: r.distance_m,
+            duration_ms: r.duration_ms,
+            prPct,
+          }
+        }
         if (cur.lastDate == null || r.date > cur.lastDate) {
           cur.lastDate = r.date
         }
@@ -229,28 +295,52 @@ export async function GET(req: Request) {
     }
   }
 
-  // Conversion en tableau + normalisation.
+  // ─── Sérialisation + normalisation ─────────────────────────────────
   const groups = Array.from(stats.entries()).map(([gid, x]) => {
-    let daysSince: number | null = null
-    if (x.lastDate) {
-      const dt = new Date(x.lastDate + 'T00:00:00')
-      daysSince = Math.max(0, Math.floor((now.getTime() - dt.getTime()) / 86400000))
-    }
+    const weightedDays = daysSince(x.weighted.lastDate, now)
+    const runningDays = daysSince(x.running.lastDate, now)
+    const avgPrPct = x.running.prWeightSum > 0
+      ? x.running.prWeightedSum / x.running.prWeightSum
+      : null
     return {
       groupId: gid,
       groupKey: GROUP_KEY[gid],
       label: GROUP_LABEL[gid],
-      volume: Math.round(x.volume),
-      series: x.series,
-      lastSessionDaysAgo: daysSince,
+      weighted: {
+        volume: Math.round(x.weighted.volume),
+        series: x.weighted.series,
+        lastSessionDaysAgo: weightedDays,
+      },
+      running: {
+        distance: Math.round(x.running.distance),
+        duration: x.running.duration,
+        runs: x.running.runs,
+        avgPrPct,
+        bestRun: x.running.bestRun,
+        lastSessionDaysAgo: runningDays,
+      },
     }
   })
 
-  const maxVolume = groups.reduce((m, g) => (g.volume > m ? g.volume : m), 0)
+  const maxWeightedVolume = groups.reduce(
+    (m, g) => (g.weighted.volume > m ? g.weighted.volume : m),
+    0,
+  )
+  const maxRunningDistance = groups.reduce(
+    (m, g) => (g.running.distance > m ? g.running.distance : m),
+    0,
+  )
 
   return NextResponse.json({
     period,
-    maxVolume,
+    maxWeightedVolume,
+    maxRunningDistance,
     groups,
   })
+}
+
+function daysSince(date: string | null, now: Date): number | null {
+  if (!date) return null
+  const dt = new Date(date + 'T00:00:00')
+  return Math.max(0, Math.floor((now.getTime() - dt.getTime()) / 86400000))
 }

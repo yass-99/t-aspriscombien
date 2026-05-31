@@ -8,10 +8,10 @@ import { formatMMSS, newId } from '../_lib/helpers'
 import {
   useExos,
   filterExos,
-  invalidateExosCache,
   MAX_EXO_PILLS,
   type ExoSuggestion,
 } from '../_lib/useExos'
+import { invalidateAfterSeanceMutation } from '../_lib/invalidate'
 import { Button, Card, IconButton, TopBar } from '../_components/primitives'
 import { ChevronLeft, Minus, Plus, Search, Timer } from '../_components/icons'
 import { useToast } from '../../_components/Toast'
@@ -31,6 +31,8 @@ type LocalSerie = {
 type LocalExo = {
   tempId: string
   nom: string
+  isBodyweight: boolean
+  isUnilateral: boolean
   series: LocalSerie[]
 }
 
@@ -86,7 +88,13 @@ export function ManualEntryScreen({ seanceId, nav }: Props) {
             date: string
             type: string
             restTargetSec: number
-            exos: { id: string; nom: string; series: { id: string; poids: number; reps: number; rir: number; degressive: boolean }[] }[]
+            exos: {
+              id: string
+              nom: string
+              isBodyweight?: boolean
+              isUnilateral?: boolean
+              series: { id: string; poids: number; reps: number; rir: number; degressive: boolean }[]
+            }[]
           }
         }
         setSeance({
@@ -96,6 +104,8 @@ export function ManualEntryScreen({ seanceId, nav }: Props) {
           exos: d.seance.exos.map((e) => ({
             tempId: newId('e'),
             nom: e.nom,
+            isBodyweight: !!e.isBodyweight,
+            isUnilateral: !!e.isUnilateral,
             series: e.series.map((s) => ({
               tempId: newId('s'),
               poids: s.poids,
@@ -132,7 +142,7 @@ export function ManualEntryScreen({ seanceId, nav }: Props) {
   const removeExo = (tempId: string) => {
     setSeance((s) => ({ ...s, exos: s.exos.filter((e) => e.tempId !== tempId) }))
   }
-  const addExo = (nom: string) => {
+  const addExo = (nom: string, isBodyweight = false, isUnilateral = false) => {
     const trimmed = nom.trim()
     if (!trimmed) return
     setSeance((s) => ({
@@ -142,6 +152,8 @@ export function ManualEntryScreen({ seanceId, nav }: Props) {
         {
           tempId: newId('e'),
           nom: trimmed,
+          isBodyweight,
+          isUnilateral,
           series: [{ tempId: newId('s'), poids: 0, reps: 8, rir: 2, degressive: false }],
         },
       ],
@@ -193,6 +205,8 @@ export function ManualEntryScreen({ seanceId, nav }: Props) {
       restTargetSec: seance.restTargetSec,
       exos: validExos.map((e) => ({
         nom: e.nom.trim(),
+        isBodyweight: e.isBodyweight,
+        isUnilateral: e.isUnilateral,
         series: e.series.map((s) => ({
           poids: s.poids,
           reps: s.reps,
@@ -215,7 +229,7 @@ export function ManualEntryScreen({ seanceId, nav }: Props) {
         setSaving(false)
         return
       }
-      invalidateExosCache()
+      invalidateAfterSeanceMutation()
       toast.ok(isEdit ? 'Séance modifiée.' : 'Séance enregistrée.')
       if (isEdit) {
         nav('session_detail', { seanceId })
@@ -234,7 +248,7 @@ export function ManualEntryScreen({ seanceId, nav }: Props) {
   }
 
   return (
-    <div className="app-scroll" style={{ minHeight: '100%', background: 'var(--bg)' }}>
+    <div className="app-scroll" style={{ minHeight: '100%', background: 'transparent' }}>
       <TopBar
         leading={
           <IconButton icon={<ChevronLeft size={18} />} label="retour" onClick={handleCancel} />
@@ -313,7 +327,7 @@ export function ManualEntryScreen({ seanceId, nav }: Props) {
                       background: active ? 'var(--accent-soft)' : 'var(--surface)',
                       color: active ? 'var(--accent)' : 'var(--ink)',
                       boxShadow: active
-                        ? '0 0 0 1px var(--accent-line, var(--accent)) inset'
+                        ? '0 0 0 1px var(--brand-line, var(--accent)) inset'
                         : '0 0 0 1px var(--line) inset',
                       fontFamily: 'var(--mono)',
                       fontWeight: 600,
@@ -491,6 +505,43 @@ const tinyBtn: React.CSSProperties = {
   justifyContent: 'center',
 }
 
+// Chip toggle compact (PDC / unilatéral) au niveau exo dans l'éditeur manuel.
+function MiniToggle({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      style={{
+        flex: 1,
+        minWidth: 0,
+        appearance: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        height: 34,
+        padding: '0 10px',
+        borderRadius: 9,
+        background: active ? 'var(--accent-soft)' : 'var(--surface-2)',
+        color: active ? 'var(--accent)' : 'var(--muted)',
+        boxShadow: active ? '0 0 0 1.5px var(--accent) inset' : '0 0 0 1px var(--line) inset',
+        fontSize: 12,
+        fontWeight: 600,
+        fontFamily: 'var(--font)',
+        transition: 'all 140ms',
+      }}
+    >
+      {label}
+    </button>
+  )
+}
+
 function SettingBlock({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
@@ -647,6 +698,26 @@ function ExoCard({
           </button>
         </div>
 
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            padding: '10px 12px',
+            borderBottom: '1px solid var(--line-2)',
+          }}
+        >
+          <MiniToggle
+            label="Poids du corps"
+            active={exo.isBodyweight}
+            onClick={() => onUpdate({ isBodyweight: !exo.isBodyweight })}
+          />
+          <MiniToggle
+            label="Unilatéral"
+            active={exo.isUnilateral}
+            onClick={() => onUpdate({ isUnilateral: !exo.isUnilateral })}
+          />
+        </div>
+
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <AnimatePresence initial={false}>
             {exo.series.map((s, i) => (
@@ -654,6 +725,7 @@ function ExoCard({
                 key={s.tempId}
                 index={i}
                 serie={s}
+                isBodyweight={exo.isBodyweight}
                 onChange={(patch) => onUpdateSerie(s.tempId, patch)}
                 onRemove={() => onRemoveSerie(s.tempId)}
               />
@@ -692,11 +764,13 @@ function ExoCard({
 function SerieRow({
   index,
   serie,
+  isBodyweight,
   onChange,
   onRemove,
 }: {
   index: number
   serie: LocalSerie
+  isBodyweight?: boolean
   onChange: (patch: Partial<LocalSerie>) => void
   onRemove: () => void
 }) {
@@ -731,7 +805,7 @@ function SerieRow({
           #{index + 1}
         </span>
         <CompactNumeric
-          label="kg"
+          label={isBodyweight ? 'lest' : 'kg'}
           value={serie.poids}
           onChange={(v) => onChange({ poids: v })}
           min={0}
@@ -915,7 +989,7 @@ function AddExoForm({
   onCancel,
 }: {
   workoutType: string
-  onAdd: (nom: string) => void
+  onAdd: (nom: string, isBodyweight?: boolean, isUnilateral?: boolean) => void
   onCancel: () => void
 }) {
   const [name, setName] = useState('')
@@ -941,7 +1015,9 @@ function AddExoForm({
   const submit = (chosen?: string) => {
     const final = (chosen ?? name).trim()
     if (final.length === 0) return
-    onAdd(final)
+    // Pré-remplit PDC / unilatéral depuis le dernier usage du même exo.
+    const match = dbExos.find((e) => e.nom.trim().toLowerCase() === final.toLowerCase())
+    onAdd(final, match?.lastIsBodyweight ?? false, match?.lastIsUnilateral ?? false)
     setName('')
   }
   return (

@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #09090B;
-  --surface: #18181B;
+  --bg: #000000;
+  --surface: #16181a;
   --surface-2: #27272A;
   --ink: #FAFAFA;
   --ink-2: #E4E4E7;
@@ -18,6 +18,46 @@
   --warn: #FBBF24;
   --ok: #4ADE80;
   --danger: #F87171;
+
+  /* --- Design system Revolut-hybride (cf. DESIGN.md) ---------------------- */
+  /* Canvas full-dark : vrai noir pour le storytelling, surface luminée pour
+     les cartes. Échelle sombre à 2 marches. Introduits sans casser l'existant. */
+  --canvas: #000000;
+  --surface-deep: #0a0a0a;
+  --surface-elevated: #16181a;
+
+  /* Cobalt = couleur de MARQUE (CTA primaires, hero, accents UI). Le vert/ambre
+     restent pour la DATA (stats muscu/athlé). cf. DESIGN.md §1. */
+  --primary: #7C3AED;
+  --primary-bright: #A78BFA;
+  --primary-deep: #6D28D9;
+  --on-primary: #ffffff;
+  /* Vrai violet (pas indigo bleuté) — couleur de marque. */
+  --brand: #7C3AED;
+  --brand-bright: #A78BFA;
+  --brand-deep: #6D28D9;
+  --brand-ink: #ffffff;
+  --brand-soft: color-mix(in oklch, var(--brand) 20%, black);
+  --brand-line: color-mix(in oklch, var(--brand) 46%, black);
+
+  /* Glassmorphism (verre dépoli sombre sur le canvas noir). */
+  --glass: rgba(255, 255, 255, 0.045);
+  --glass-strong: rgba(255, 255, 255, 0.07);
+  --glass-border: rgba(255, 255, 255, 0.10);
+  --glass-highlight: rgba(255, 255, 255, 0.06);
+
+  /* Lignes qui remplacent les ombres en zone sombre. */
+  --hairline: rgba(255, 255, 255, 0.12);
+  --hairline-strong: #27272A;
+  --on-dark-mute: rgba(255, 255, 255, 0.72);
+
+  /* Rayons (tout bouton => full ; toute carte => lg ; input => md). */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-full: 9999px;
+
   --radius: 14px;
   --shadow-sm: 0 1px 2px rgba(
     0,0,0,0.40);
@@ -27,7 +67,16 @@
   --mono: var(--font-jetbrains-mono), ui-monospace, "SF Mono", Menlo, monospace;
   --display: var(--font-space-grotesk), -apple-system, sans-serif;
 
+  /* CTA bas : ajustable selon le mode (site vs web app). */
+  --cta-pad-bottom: 12px;
+
   color-scheme: dark;
+}
+
+@media (display-mode: standalone) {
+  :root {
+    --cta-pad-bottom: 0px;
+  }
 }
 
 html, body {
@@ -45,6 +94,13 @@ button { font-family: inherit; color: inherit; }
 input { font-family: inherit; color: inherit; }
 input::placeholder { color: var(--subtle); }
 
+/* Inputs date : neutralise le rendu natif iOS/Safari (texte décentré, champ
+   paraissant vide, largeur intrinsèque qui déborde le conteneur sur mobile). */
+input[type="date"] { -webkit-appearance: none; appearance: none; }
+input[type="date"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+input[type="date"]::-webkit-datetime-edit { padding: 0; }
+input[type="date"]::-webkit-calendar-picker-indicator { margin-left: auto; }
+
 ::selection {
   background: color-mix(in oklch, var(--accent) 35%, transparent);
   color: var(--ink);
@@ -57,6 +113,17 @@ input::placeholder { color: var(--subtle); }
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
 }
+/* Révélation lettre par lettre : chaque glyphe monte du bas. La hauteur de
+   montée est pilotable via --lr-rise (em → suit la taille de police), pour
+   atténuer le déplacement sur les très gros titres multi-lignes. */
+@keyframes letterUp {
+  from { opacity: 0; transform: translateY(var(--lr-rise, 0.6em)); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Feedback tactile : tout élément cliquable se compresse légèrement au press. */
+.tap { transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1); }
+.tap:active { transform: scale(0.95); }
 @keyframes pulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.04); }
@@ -89,4 +156,37 @@ input::placeholder { color: var(--subtle); }
 @keyframes dialogPopIn {
   from { opacity: 0; transform: scale(0.96) translateY(6px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
+}
+/* Sheet ancré en bas : glisse depuis le bas de l'écran. */
+@keyframes sheetUp {
+  from { opacity: 0; transform: translateY(40px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Transition d'écran (StepSwitcher) : pendant le slide, on gèle TOUS les
+   backdrop-filter du sous-arbre. Le flou du glass, ré-échantillonné à chaque
+   frame par-dessus les halos déjà floutés de AmbientBackground, est le poste
+   de jank #1 sur mobile (invisible sur desktop). Le glass garde son fond
+   semi-opaque (rgba) le temps du mouvement : la bascule de ~0,3 s est
+   imperceptible mais le compositing redevient quasi gratuit. */
+[data-seance-anim] *,
+[data-seance-anim] *::before,
+[data-seance-anim] *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
