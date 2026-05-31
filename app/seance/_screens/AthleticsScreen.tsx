@@ -25,6 +25,13 @@ type Props = {
 
 const DEFAULT_DISTANCE = 100
 
+// Hauteur réellement disponible : le conteneur racine (SessionClient) applique
+// déjà un paddingTop = safe-area-inset-top. Un écran en `100dvh` déborderait donc
+// le viewport de cette marge et pousserait le footer sous la ligne de flottaison
+// (il faut scroller pour l'atteindre). On retranche l'inset haut pour que chaque
+// écran tienne pile dans la zone visible, footer compris.
+const SCREEN_H = 'calc(100dvh - env(safe-area-inset-top, 0px))'
+
 export function AthleticsScreen({ nav, initialDistance = null }: Props) {
   const { runs, loading, error, create } = useRuns()
   const toast = useToast()
@@ -248,7 +255,8 @@ function ChronoView({
   return (
     <div
       style={{
-        minHeight: '100dvh',
+        height: SCREEN_H,
+        overflow: 'hidden',
         background: isRunning
           ? 'radial-gradient(120% 70% at 50% 0%, color-mix(in oklch, var(--warn) 14%, var(--bg)) 0%, var(--bg) 60%)'
           : 'var(--bg)',
@@ -318,6 +326,7 @@ function ChronoView({
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -565,7 +574,8 @@ function DistanceSetupView({
   return (
     <div
       style={{
-        minHeight: '100dvh',
+        height: SCREEN_H,
+        overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
         background: 'transparent',
@@ -583,7 +593,7 @@ function DistanceSetupView({
         }
       />
 
-      <div style={{ flex: 1, padding: '8px 20px 24px' }}>
+      <div className="app-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 20px 24px' }}>
         <h2
           style={{
             fontSize: 30,
@@ -832,7 +842,8 @@ function SessionReviewView({
   return (
     <div
       style={{
-        minHeight: '100dvh',
+        height: SCREEN_H,
+        overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
         background: 'transparent',
@@ -844,7 +855,7 @@ function SessionReviewView({
         subtitle="Vérifie et confirme"
       />
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 16px 16px' }}>
+      <div className="app-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '4px 16px 16px' }}>
         {/* Hero */}
         <div
           style={{

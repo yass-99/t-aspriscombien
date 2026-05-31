@@ -194,9 +194,12 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
 
   return (
     <div
-      className="app-scroll"
       style={{
-        minHeight: '100%',
+        // Hauteur bornée à la zone visible (le conteneur racine ajoute déjà le
+        // safe-area haut). Le footer vit DANS le flux en bas de ce conteneur et
+        // reste donc collé au viewport ; seul le contenu défile.
+        height: 'calc(100dvh - env(safe-area-inset-top, 0px))',
+        overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
         background: 'transparent',
@@ -278,9 +281,13 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
       </div>
 
       <div
+        className="app-scroll"
         style={{
           flex: 1,
-          padding: '4px 16px 120px',
+          minHeight: 0,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          padding: '4px 16px 16px',
           display: 'flex',
           flexDirection: 'column',
           gap: 12,
@@ -547,14 +554,9 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
 
       <div
         style={{
-          position: 'fixed',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          zIndex: 30,
+          flexShrink: 0,
           padding: '14px 16px calc(env(safe-area-inset-bottom, 0px) + 16px)',
           background: 'linear-gradient(180deg, transparent, var(--bg) 30%)',
-          pointerEvents: 'none',
         }}
       >
         <div
@@ -564,7 +566,6 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
             display: 'flex',
             flexDirection: 'column',
             gap: 10,
-            pointerEvents: 'auto',
             ...rise(300),
           }}
         >
@@ -678,7 +679,8 @@ function RestScreen({
     <div
       style={{
         position: 'relative',
-        minHeight: '100dvh',
+        height: 'calc(100dvh - env(safe-area-inset-top, 0px))',
+        overflow: 'hidden',
         width: '100%',
         // Halo ambiant violet en taches radiales (même grammaire que
         // AmbientBackground, cf. DESIGN §4) : c'est cette matière que le panneau
@@ -772,8 +774,11 @@ function RestScreen({
       )}
 
       <div
+        className="app-scroll"
         style={{
           flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
