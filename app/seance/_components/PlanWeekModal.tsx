@@ -9,6 +9,7 @@ import { TYPE_LABELS } from '../_lib/plan'
 import { usePlan, invalidatePlan } from '../_lib/usePlan'
 import { weekDatesFrom } from '../_lib/helpers'
 import { weekKey } from '../_lib/profile'
+import { subscribeToPush, pushSupported, isStandalone } from '../_lib/push'
 
 const DAY_NAMES = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
 const TYPE_CHOICES = [...WORKOUT_TYPES.map((t) => t.id), 'athletics']
@@ -34,6 +35,8 @@ export function PlanWeekModal({ open, onClose }: { open: boolean; onClose: () =>
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [editing, setEditing] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // iOS non installé : on ne peut pas s'abonner aux push → indice d'installation.
+  const [showIosHint, setShowIosHint] = useState(false)
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -46,6 +49,7 @@ export function PlanWeekModal({ open, onClose }: { open: boolean; onClose: () =>
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraft(Object.fromEntries(entries.map((e) => [e.date, e.type])))
     setEditing(null)
+    setShowIosHint(false)
   }, [open, entries])
 
   // Verrouille le scroll du body tant que le modal est ouvert.
@@ -84,6 +88,18 @@ export function PlanWeekModal({ open, onClose }: { open: boolean; onClose: () =>
         return
       }
       invalidatePlan(weekStart)
+
+      // Au tout premier plan enregistré, proposer les notifs (une seule fois).
+      if (pushSupported() && Notification.permission === 'default') {
+        const onIOS = /iphone|ipad|ipod/i.test(navigator.userAgent)
+        if (onIOS && !isStandalone()) {
+          // iOS non installé : garder le modal ouvert pour montrer l'indice.
+          setShowIosHint(true)
+          setSaving(false)
+          return
+        }
+        await subscribeToPush()
+      }
       onClose()
     } catch {
       setSaving(false)
@@ -292,8 +308,25 @@ export function PlanWeekModal({ open, onClose }: { open: boolean; onClose: () =>
               })}
             </div>
 
+            {showIosHint && (
+              <div
+                style={{
+                  marginTop: 14,
+                  padding: '12px 14px',
+                  borderRadius: 12,
+                  background: 'var(--brand-soft)',
+                  boxShadow: '0 0 0 1px var(--brand-line) inset',
+                  fontSize: 12.5,
+                  lineHeight: 1.45,
+                  color: 'var(--ink-2)',
+                }}
+              >
+                Plan enregistré ✓ — pour recevoir le rappel le jour J, ajoute l&apos;app à
+                ton écran d&apos;accueil (Partager → « Sur l&apos;écran d&apos;accueil »).
+              </div>
+            )}
             <button
-              onClick={save}
+              onClick={showIosHint ? onClose : save}
               disabled={saving}
               style={{
                 width: '100%',
@@ -312,7 +345,7 @@ export function PlanWeekModal({ open, onClose }: { open: boolean; onClose: () =>
                 opacity: saving ? 0.7 : 1,
               }}
             >
-              {saving ? 'Enregistrement…' : 'Enregistrer'}
+              {showIosHint ? 'Fermer' : saving ? 'Enregistrement…' : 'Enregistrer'}
             </button>
           </motion.div>
         </motion.div>
