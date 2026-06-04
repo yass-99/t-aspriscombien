@@ -70,17 +70,28 @@ export function IdleScreen({ nav }: Props) {
     return runs.filter((r) => new Date(r.date + 'T00:00:00').getTime() >= start)
   }, [runs])
   const athleChronos = weekRuns.length
-  // Jours (Lun=0…Dim=6) où il y a eu de l'athlé cette semaine → colore le trait
-  // du graphe en orange sur ces jours.
-  const athleticDays = useMemo(() => {
-    const arr = new Array(7).fill(false) as boolean[]
+  // Rythme bi-discipline : on combine muscu (volume normalisé) et athlé (nb de
+  // chronos normalisé) en une intensité 0→1 par jour, pour que les jours athlé
+  // MONTENT dans le graphe (pas seulement colorés). `athleticDays` pilote la
+  // couleur (orange) du trait. Forme muscu-only inchangée (échelle linéaire).
+  const { athleticDays, rhythm } = useMemo(() => {
+    const counts = new Array(7).fill(0) as number[]
     const start = weekStartMonday().getTime()
     for (const r of weekRuns) {
       const idx = Math.floor((new Date(r.date + 'T00:00:00').getTime() - start) / 86_400_000)
-      if (idx >= 0 && idx < 7) arr[idx] = true
+      if (idx >= 0 && idx < 7) counts[idx] += 1
     }
-    return arr
-  }, [weekRuns])
+    const muscu = (data?.week.daily ?? new Array(7).fill(0)) as number[]
+    const maxMuscu = Math.max(...muscu, 1)
+    const maxRuns = Math.max(...counts, 1)
+    const rhythm = muscu.map((v, i) => {
+      const m = v / maxMuscu // 0→1 muscu
+      // Présence athlé : plancher à 0,55 (visible) puis monte avec le nb de chronos.
+      const a = counts[i] > 0 ? 0.55 + 0.45 * (counts[i] / maxRuns) : 0
+      return Math.max(m, a)
+    })
+    return { athleticDays: counts.map((c) => c > 0), rhythm }
+  }, [weekRuns, data])
   const bestRun = useMemo(
     () => weekRuns.reduce<Run | null>((b, r) => (!b || r.duration_ms < b.duration_ms ? r : b), null),
     [weekRuns],
@@ -261,7 +272,7 @@ export function IdleScreen({ nav }: Props) {
               {pending ? (
                 <SkeletonChart height={40} />
               ) : (
-                <WeekRhythm daily={data?.week.daily ?? []} athleticDays={athleticDays} />
+                <WeekRhythm daily={rhythm} athleticDays={athleticDays} />
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 9 }}>
                 {DAY_LABELS.map((d, i) => (
