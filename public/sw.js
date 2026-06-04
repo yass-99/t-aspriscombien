@@ -4,8 +4,8 @@
 //   - assets statiques (_next/static, fonts, /icon*) → cache-first
 //   - HTML / autres → network-first avec fallback cache
 
-const CACHE_VERSION = 'tpc-v3'
-const RUNTIME = 'tpc-runtime-v3'
+const CACHE_VERSION = 'tpc-v4'
+const RUNTIME = 'tpc-runtime-v4'
 const PRECACHE_URLS = ['/']
 
 self.addEventListener('install', (event) => {
@@ -86,3 +86,34 @@ async function networkFirst(req) {
     throw e
   }
 }
+
+// Web Push : réveille le SW même app fermée.
+self.addEventListener('push', (event) => {
+  let data = {}
+  try {
+    data = event.data ? event.data.json() : {}
+  } catch (e) {
+    data = {}
+  }
+  const title = data.title || 'Séance du jour'
+  const options = {
+    body: data.body || "On y va ? Ta séance t'attend.",
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    data: { url: data.url || '/seance' },
+  }
+  event.waitUntil(self.registration.showNotification(title, options))
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const url = (event.notification.data && event.notification.data.url) || '/seance'
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if (c.url.includes(url) && 'focus' in c) return c.focus()
+      }
+      return self.clients.openWindow(url)
+    }),
+  )
+})

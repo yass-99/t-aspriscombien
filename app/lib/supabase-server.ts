@@ -24,3 +24,18 @@ export function createSupabaseServer(token?: string): SupabaseClient {
       : undefined,
   })
 }
+
+/**
+ * Client admin (clé secrète) — bypass RLS. Réservé au cron serveur, qui doit
+ * lire les séances planifiées et abonnements de TOUS les utilisateurs.
+ */
+export function createSupabaseAdmin(): SupabaseClient {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SECRET_KEY
+  if (!url || !key) {
+    throw new Error('Supabase admin: URL ou SUPABASE_SECRET_KEY manquante')
+  }
+  return createClient(url.trim(), key.trim(), {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+}

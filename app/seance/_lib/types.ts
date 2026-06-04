@@ -32,6 +32,9 @@ export type NavContext = {
   // Sous-étape sur laquelle (ré)ouvrir le ConfigScreen. Permet au retour depuis
   // exercise_select de retomber sur l'étape « chrono » plutôt que « type ».
   configStep?: 'type' | 'chrono'
+  // Type pré-rempli depuis une séance planifiée : ConfigScreen s'ouvre au chrono
+  // avec ce type déjà choisi (cas muscu uniquement ; l'athlé route vers 'athletics').
+  plannedType?: string
 }
 
 export type NavFn = (step: WorkoutStep, ctx?: NavContext) => void

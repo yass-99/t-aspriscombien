@@ -33,13 +33,17 @@ export function weekStartMonday(d: Date = new Date()): Date {
   return x
 }
 
+// Date locale (appareil) "yyyy-mm-dd". Sert à repérer la séance « du jour » côté UI.
+export function isoLocalDate(d: Date = new Date()): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 // Clé de semaine ISO locale "yyyy-mm-dd" du lundi (sert de clé de skip hebdo).
 export function weekKey(d: Date = new Date()): string {
-  const w = weekStartMonday(d)
-  const y = w.getFullYear()
-  const m = String(w.getMonth() + 1).padStart(2, '0')
-  const day = String(w.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  return isoLocalDate(weekStartMonday(d))
 }
 
 // Une pesée datée (ISO) tombe-t-elle dans la semaine courante (lundi→dimanche, local) ?
