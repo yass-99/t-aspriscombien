@@ -70,6 +70,17 @@ export function IdleScreen({ nav }: Props) {
     return runs.filter((r) => new Date(r.date + 'T00:00:00').getTime() >= start)
   }, [runs])
   const athleChronos = weekRuns.length
+  // Jours (Lun=0…Dim=6) où il y a eu de l'athlé cette semaine → colore le trait
+  // du graphe en orange sur ces jours.
+  const athleticDays = useMemo(() => {
+    const arr = new Array(7).fill(false) as boolean[]
+    const start = weekStartMonday().getTime()
+    for (const r of weekRuns) {
+      const idx = Math.floor((new Date(r.date + 'T00:00:00').getTime() - start) / 86_400_000)
+      if (idx >= 0 && idx < 7) arr[idx] = true
+    }
+    return arr
+  }, [weekRuns])
   const bestRun = useMemo(
     () => weekRuns.reduce<Run | null>((b, r) => (!b || r.duration_ms < b.duration_ms ? r : b), null),
     [weekRuns],
@@ -250,7 +261,7 @@ export function IdleScreen({ nav }: Props) {
               {pending ? (
                 <SkeletonChart height={40} />
               ) : (
-                <WeekRhythm daily={data?.week.daily ?? []} />
+                <WeekRhythm daily={data?.week.daily ?? []} athleticDays={athleticDays} />
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 9 }}>
                 {DAY_LABELS.map((d, i) => (
@@ -827,9 +838,12 @@ const DRAW_EASE: [number, number, number, number] = [0.76, 0, 0.24, 1]
 // easing PAR SEGMENT (≈ linéaire global) pendant que le pathLength reçoit l'easing
 // sur toute la durée → ils divergeaient. Ici, même `progress` → même profil
 // vitesse/temps, à la fraction d'arc près (échantillonnage uniforme en arc).
-function WeekRhythm({ daily }: { daily: number[] }) {
+function WeekRhythm({ daily, athleticDays }: { daily: number[]; athleticDays?: boolean[] }) {
   const reduce = useReducedMotion()
   const week = daily.length === 7 ? daily : new Array(7).fill(0)
+  // Jours avec activité athlé (orange) vs muscu seule (vert). Défaut = aucun athlé
+  // → comportement identique à avant (rétrocompatible).
+  const athle = athleticDays && athleticDays.length === 7 ? athleticDays : new Array(7).fill(false)
   // Index du jour courant (Lun=0 … Dim=6). On ne trace que le VÉCU : lundi →
   // aujourd'hui. Le futur n'existe pas encore.
   const todayIdx = Math.max(
@@ -837,7 +851,10 @@ function WeekRhythm({ daily }: { daily: number[] }) {
     Math.min(6, Math.floor((Date.now() - weekStartMonday().getTime()) / 86_400_000)),
   )
   const vals = week.slice(0, todayIdx + 1)
-  const hasData = vals.some((v) => v > 0)
+  const hasData = vals.some((v) => v > 0) || athle.slice(0, todayIdx + 1).some(Boolean)
+  // Couleur de la tête (point qui trace) selon l'activité du jour courant.
+  const headIsAthletic = athle[todayIdx]
+  const headColor = headIsAthletic ? 'var(--warn)' : 'var(--accent)'
   const max = Math.max(...week, 1)
   const W = 320
   const H = 40
@@ -907,6 +924,23 @@ function WeekRhythm({ daily }: { daily: number[] }) {
           <stop offset="38%" stopColor="var(--accent)" stopOpacity="0.4" />
           <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
         </radialGradient>
+        {/* Lueur orange (jour athlé) — sœur de todayGlow. */}
+        <radialGradient id="todayGlowWarn" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="var(--warn)" stopOpacity="0.9" />
+          <stop offset="38%" stopColor="var(--warn)" stopOpacity="0.4" />
+          <stop offset="100%" stopColor="var(--warn)" stopOpacity="0" />
+        </radialGradient>
+        {/* Dégradé horizontal du trait : 1 arrêt par jour (vert muscu / orange
+            athlé). Le trait « vire vers l'orange » sur les jours d'athlétisme. */}
+        <linearGradient id="weekStroke" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2={W} y2="0">
+          {week.map((_, i) => (
+            <stop
+              key={i}
+              offset={`${((i / 6) * 100).toFixed(2)}%`}
+              stopColor={athle[i] ? 'var(--warn)' : 'var(--accent)'}
+            />
+          ))}
+        </linearGradient>
       </defs>
       {hasData ? (
         <>
@@ -916,18 +950,24 @@ function WeekRhythm({ daily }: { daily: number[] }) {
           <motion.path
             d={path}
             fill="none"
-            stroke="var(--accent)"
+            stroke="url(#weekStroke)"
             strokeWidth="1.8"
             strokeLinecap="round"
             strokeLinejoin="round"
             style={{ pathLength: progress }}
           />
           {/* Lueur : le point qui MÈNE, à la même fraction d'arc que la tête du trait. */}
-          <motion.circle r={14} fill="url(#todayGlow)" cx={cx} cy={cy} style={{ opacity: glowOpacity }} />
-          {/* La pointe nette du « stylo » qui trace. */}
+          <motion.circle
+            r={14}
+            fill={headIsAthletic ? 'url(#todayGlowWarn)' : 'url(#todayGlow)'}
+            cx={cx}
+            cy={cy}
+            style={{ opacity: glowOpacity }}
+          />
+          {/* La pointe nette du « stylo » qui trace (couleur du jour courant). */}
           <motion.circle
             r={3}
-            fill="var(--accent)"
+            fill={headColor}
             stroke="var(--bg)"
             strokeWidth={1}
             cx={cx}
