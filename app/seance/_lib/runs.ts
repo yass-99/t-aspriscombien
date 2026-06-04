@@ -1,5 +1,6 @@
 import type { Run } from './types'
 import { formatProfileLine, type ProfileHeader } from './helpers'
+import { isoLocalDate } from './profile'
 
 export const DISTANCE_PRESETS_M = [80, 100, 200, 250, 300, 400] as const
 
@@ -160,10 +161,15 @@ export function bucketActivityWindow(
   allRuns: Run[],
   endDaysAgo: number,
   windowDays: number,
+  now: Date = new Date(),
 ): DayActivity[] {
-  const today = new Date()
+  const today = new Date(now)
   today.setHours(0, 0, 0, 0)
-  const todayStr = today.toISOString().slice(0, 10)
+  // Dates LOCALES (et non .toISOString() = UTC) : sinon, à l'est de Greenwich,
+  // minuit local repasse à la veille en UTC → décalage d'un jour de toute la
+  // grille, et la séance du jour disparaît. Les runs sont datés en local (cf
+  // useRuns.create), on compare donc en local des deux côtés.
+  const todayStr = isoLocalDate(today)
 
   const runsByDate = new Map<string, number>()
   for (const r of allRuns) {
@@ -175,7 +181,7 @@ export function bucketActivityWindow(
   for (let i = windowDays - 1; i >= 0; i--) {
     const d = new Date(today)
     d.setDate(d.getDate() - endDaysAgo - i)
-    const dateStr = d.toISOString().slice(0, 10)
+    const dateStr = isoLocalDate(d)
     out.push({
       date: dateStr,
       isToday: dateStr === todayStr,
