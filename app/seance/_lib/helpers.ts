@@ -610,6 +610,30 @@ export function formatPeriodForLLM(
   return `${PERIOD_COACH_PROMPT}\n\n${lines.join('\n').trimEnd()}\n`
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// PLANIFICATION — helpers de date partagés (UI + cron).
+// ─────────────────────────────────────────────────────────────────────────
+
+// Date du jour au fuseau Europe/Paris, format YYYY-MM-DD (en-CA = ISO).
+export function isoDateInParis(now: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Paris',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+}
+
+// Les 7 dates ISO (YYYY-MM-DD) d'une semaine à partir de son lundi.
+export function weekDatesFrom(mondayIso: string): string[] {
+  const base = new Date(mondayIso + 'T00:00:00Z')
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(base)
+    d.setUTCDate(d.getUTCDate() + i)
+    return d.toISOString().slice(0, 10)
+  })
+}
+
 export function formatSessionAsText(session: SessionState, profile?: ProfileHeader): string {
   const type = WORKOUT_TYPES.find((t) => t.id === session.type)
   const typeLabel = type?.label ?? session.type ?? 'Séance'
