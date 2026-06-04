@@ -1,5 +1,23 @@
 export type PlanEntry = { date: string; type: string }
 
+// Libellés affichables des types (alignés sur WORKOUT_TYPES + athlétisme).
+export const TYPE_LABELS: Record<string, string> = {
+  push: 'Push',
+  pull: 'Pull',
+  legs: 'Jambes',
+  full: 'Full body',
+  upper: 'Upper',
+  core: 'Abdos',
+  athletics: 'Athlétisme',
+}
+
+// Items du StatusSpot hors alertes : si une séance est prévue ce jour, le
+// greeting cède la place au rappel ; sinon greeting + entrée de planif.
+export function buildIdleItems(greeting: string, plannedLabel: string | null): string[] {
+  if (plannedLabel) return [`Aujourd'hui : ${plannedLabel}`, 'Ma semaine']
+  return [greeting, 'Planifier ma semaine']
+}
+
 // Compare l'état édité au stocké, restreint à la semaine, et rend les écritures
 // minimales : upserts (jours ajoutés/changés) + deletes (jours retirés).
 export function planDiff(

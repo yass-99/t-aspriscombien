@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { planDiff } from './plan'
+import { buildIdleItems, planDiff, TYPE_LABELS } from './plan'
+
+describe('buildIdleItems', () => {
+  it('sans séance du jour : greeting + Planifier', () => {
+    expect(buildIdleItems('Bonjour', null)).toEqual(['Bonjour', 'Planifier ma semaine'])
+  })
+  it('avec séance du jour : remplace le greeting par le rappel + Ma semaine', () => {
+    expect(buildIdleItems('Bonjour', TYPE_LABELS.push)).toEqual([
+      "Aujourd'hui : Push",
+      'Ma semaine',
+    ])
+  })
+})
 
 const WEEK = ['2026-06-08','2026-06-09','2026-06-10','2026-06-11','2026-06-12','2026-06-13','2026-06-14']
 

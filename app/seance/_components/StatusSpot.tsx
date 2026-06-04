@@ -12,7 +12,10 @@ import { useProfile } from '../_lib/useProfile'
 import { useCheckinSkip } from '../_lib/useCheckinSkip'
 import { useOnboardingDismiss } from '../_lib/useOnboardingDismiss'
 import { useMounted } from '../_lib/useMounted'
-import { isThisWeek } from '../_lib/profile'
+import { isThisWeek, weekKey, isoLocalDate } from '../_lib/profile'
+import { usePlan } from '../_lib/usePlan'
+import { buildIdleItems, TYPE_LABELS } from '../_lib/plan'
+import { PlanWeekModal } from './PlanWeekModal'
 
 const ROTATE_MS = 3800
 
@@ -33,8 +36,15 @@ export function StatusSpot() {
   const skipped = useCheckinSkip()
   const onboardingDismissed = useOnboardingDismiss()
 
-  const [open, setOpen] = useState<AlertKind | null>(null)
+  const [open, setOpen] = useState<AlertKind | 'plan' | null>(null)
   const [idx, setIdx] = useState(0)
+
+  // Séance planifiée aujourd'hui (gate `mounted` → pas de mismatch d'hydratation).
+  const { entries: planEntries } = usePlan(weekKey())
+  const plannedToday = mounted
+    ? planEntries.find((e) => e.date === isoLocalDate()) ?? null
+    : null
+  const plannedLabel = plannedToday ? TYPE_LABELS[plannedToday.type] ?? null : null
 
   // Avant le montage : rendu déterministe (= HTML serveur) pour éviter le mismatch
   // d'hydratation. greetingFor() dépend de l'heure ; les alertes, de localStorage.
@@ -61,7 +71,7 @@ export function StatusSpot() {
   const alertActive = alerts.length > 0
   // Dès qu'une action est en attente : on masque le greeting et on déroule
   // uniquement la liste des actions.
-  const items = alertActive ? alerts.map((a) => a.label) : [base]
+  const items = alertActive ? alerts.map((a) => a.label) : buildIdleItems(base, plannedLabel)
 
   // Rotation auto du message uniquement quand il y a au moins une alerte.
   useEffect(() => {
@@ -85,24 +95,23 @@ export function StatusSpot() {
     if (target) setOpen(target.kind)
   }
 
+  // Hors alerte, la pill est l'entrée de planification (clic → modal semaine).
+  const onPill = () => (alertActive ? openTarget() : setOpen('plan'))
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
       <div style={{ position: 'relative', display: 'inline-block' }}>
       <div
-        role={alertActive ? 'button' : undefined}
-        tabIndex={alertActive ? 0 : undefined}
-        aria-label={alertActive ? (currentAlert ?? alerts[0])?.label : undefined}
-        onClick={alertActive ? openTarget : undefined}
-        onKeyDown={
-          alertActive
-            ? (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  openTarget()
-                }
-              }
-            : undefined
-        }
+        role="button"
+        tabIndex={0}
+        aria-label={alertActive ? (currentAlert ?? alerts[0])?.label : current}
+        onClick={onPill}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onPill()
+          }
+        }}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -115,7 +124,7 @@ export function StatusSpot() {
           boxShadow: chromeColor
             ? `0 0 0 1px color-mix(in oklch, ${chromeColor} 45%, var(--line)) inset`
             : '0 0 0 1px var(--line) inset',
-          cursor: alertActive ? 'pointer' : 'default',
+          cursor: 'pointer',
           transition: 'background 220ms, box-shadow 220ms',
         }}
       >
@@ -233,6 +242,7 @@ export function StatusSpot() {
       {open === 'profile' && needsProfile && (
         <OnboardingProfileModal profile={profile} onDismiss={() => setOpen(null)} />
       )}
+      <PlanWeekModal open={open === 'plan'} onClose={() => setOpen(null)} />
     </div>
   )
 }
