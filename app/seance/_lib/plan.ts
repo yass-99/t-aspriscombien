@@ -18,6 +18,34 @@ export function buildIdleItems(greeting: string, plannedLabel: string | null): s
   return [greeting, 'Planifier ma semaine']
 }
 
+type PlanRow = { user_id: string; type: string }
+type SubRow = { user_id: string; endpoint: string; p256dh: string; auth: string }
+export type PushTask = {
+  sub: { endpoint: string; keys: { p256dh: string; auth: string } }
+  payload: { title: string; body: string; url: string }
+}
+
+// Jointure pure plans×abonnements : pour chaque abonnement dont l'utilisateur a
+// une séance ce jour, produit la tâche d'envoi (message + clés).
+export function selectNotifiable(plans: PlanRow[], subs: SubRow[]): PushTask[] {
+  const typeByUser = new Map(plans.map((p) => [p.user_id, p.type]))
+  const tasks: PushTask[] = []
+  for (const s of subs) {
+    const type = typeByUser.get(s.user_id)
+    if (!type) continue
+    const label = TYPE_LABELS[type] ?? type
+    tasks.push({
+      sub: { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+      payload: {
+        title: `Séance ${label} aujourd'hui`,
+        body: "On y va ? Ta séance t'attend.",
+        url: '/seance',
+      },
+    })
+  }
+  return tasks
+}
+
 // Compare l'état édité au stocké, restreint à la semaine, et rend les écritures
 // minimales : upserts (jours ajoutés/changés) + deletes (jours retirés).
 export function planDiff(

@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { buildIdleItems, planDiff, TYPE_LABELS } from './plan'
+import { buildIdleItems, planDiff, selectNotifiable, TYPE_LABELS } from './plan'
+
+describe('selectNotifiable', () => {
+  it('joint plans et abonnements par user et construit le message', () => {
+    const plans = [
+      { user_id: 'u1', type: 'push' },
+      { user_id: 'u2', type: 'athletics' },
+    ]
+    const subs = [
+      { user_id: 'u1', endpoint: 'e1', p256dh: 'k1', auth: 'a1' },
+      { user_id: 'u3', endpoint: 'e3', p256dh: 'k3', auth: 'a3' }, // pas de plan → ignoré
+    ]
+    const out = selectNotifiable(plans, subs)
+    expect(out).toHaveLength(1)
+    expect(out[0].sub.endpoint).toBe('e1')
+    expect(out[0].sub.keys).toEqual({ p256dh: 'k1', auth: 'a1' })
+    expect(out[0].payload.title).toContain('Push')
+    expect(out[0].payload.url).toBe('/seance')
+  })
+})
 
 describe('buildIdleItems', () => {
   it('sans séance du jour : greeting + Planifier', () => {
