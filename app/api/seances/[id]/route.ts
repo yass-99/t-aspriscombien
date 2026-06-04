@@ -8,11 +8,13 @@ type SerieIn = {
   reps: number
   rir: number
   degressive: boolean
+  amplitude?: '90' | 'partielle' | null
 }
 type ExoIn = {
   nom: string
   isBodyweight?: boolean
   isUnilateral?: boolean
+  supersetId?: string | null
   series: SerieIn[]
 }
 type PutBody = {
@@ -29,11 +31,13 @@ type SerieRow = {
   rir: number
   degressive: boolean
   recup: number
+  amplitude: '90' | 'partielle' | null
 }
 type ExoRow = {
   id: string
   // nom + flags proviennent du join exercises (exercise_id).
   exercises: { nom: string; is_bodyweight: boolean | null; is_unilateral: boolean | null } | null
+  superset_group: number | null
   series: SerieRow[] | null
 }
 type SeanceRow = {
@@ -61,8 +65,9 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
   const supabase = createSupabaseServer(token)
   const { data, error } = (await supabase
     .from('seances')
-    .select('id, date, type, exos(id, exercises(nom, is_bodyweight, is_unilateral), series(id, poids, reps, rir, degressive, recup))')
+    .select('id, date, type, exos(id, superset_group, exercises(nom, is_bodyweight, is_unilateral), series(id, poids, reps, rir, degressive, recup, amplitude))')
     .eq('id', id)
+    .order('id', { ascending: true, foreignTable: 'exos' })
     .single()) as unknown as { data: SeanceRow | null; error: { message: string } | null }
 
   if (error || !data) {
@@ -91,12 +96,14 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
       nom: e.exercises?.nom ?? '',
       isBodyweight: !!e.exercises?.is_bodyweight,
       isUnilateral: !!e.exercises?.is_unilateral,
+      supersetId: e.superset_group != null ? `g${e.superset_group}` : null,
       series: (e.series ?? []).map((s) => ({
         id: s.id,
         poids: s.poids,
         reps: s.reps,
         rir: s.rir,
         degressive: s.degressive,
+        amplitude: s.amplitude ?? null,
       })),
     })),
   }
@@ -147,9 +154,18 @@ export async function PUT(req: NextRequest, ctx: RouteCtx) {
     return NextResponse.json({ error: delErr.message }, { status: 500 })
   }
 
-  // Re-insert exos + series
+  // Re-insert exos + series. Les supersetId (tokens client) sont mappés vers des
+  // entiers stables par séance (1, 2, …) pour la colonne exos.superset_group.
+  const supersetGroups = new Map<string, number>()
   for (const exo of body.exos) {
     if (!exo.nom?.trim() || !exo.series || exo.series.length === 0) continue
+    let supersetGroup: number | null = null
+    if (exo.supersetId) {
+      if (!supersetGroups.has(exo.supersetId)) {
+        supersetGroups.set(exo.supersetId, supersetGroups.size + 1)
+      }
+      supersetGroup = supersetGroups.get(exo.supersetId)!
+    }
     // nom + flags vivent sur exercises → on résout (ou crée) l'exercice d'abord.
     const exerciseId = await resolveExerciseId(
       supabase,
@@ -166,6 +182,7 @@ export async function PUT(req: NextRequest, ctx: RouteCtx) {
       .insert({
         seance_id: id,
         exercise_id: exerciseId,
+        superset_group: supersetGroup,
       })
       .select('id')
       .single()
@@ -179,6 +196,7 @@ export async function PUT(req: NextRequest, ctx: RouteCtx) {
       recup: body.restTargetSec,
       rir: s.rir,
       degressive: s.degressive,
+      amplitude: s.amplitude ?? null,
     }))
     const { error: srErr } = await supabase.from('series').insert(rows)
     if (srErr) {

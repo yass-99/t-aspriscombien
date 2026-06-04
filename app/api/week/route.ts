@@ -12,10 +12,12 @@ type SerieRow = {
   rir: number
   degressive: boolean
   recup: number
+  amplitude: '90' | 'partielle' | null
 }
 type ExoRow = {
   id: string
   exercises: { nom: string; is_bodyweight: boolean | null; is_unilateral: boolean | null } | null
+  superset_group: number | null
   series: SerieRow[] | null
 }
 type SeanceRow = {
@@ -68,11 +70,12 @@ export async function GET(req: NextRequest) {
   const { data: seancesData, error: sErr } = (await supabase
     .from('seances')
     .select(
-      'id, date, type, exos(id, exercises(nom, is_bodyweight, is_unilateral), series(id, poids, reps, rir, degressive, recup))',
+      'id, date, type, exos(id, superset_group, exercises(nom, is_bodyweight, is_unilateral), series(id, poids, reps, rir, degressive, recup, amplitude))',
     )
     .gte('date', startStr)
     .lte('date', endStr)
-    .order('date', { ascending: true })) as unknown as {
+    .order('date', { ascending: true })
+    .order('id', { ascending: true, foreignTable: 'exos' })) as unknown as {
     data: SeanceRow[] | null
     error: { message: string } | null
   }
@@ -108,11 +111,13 @@ export async function GET(req: NextRequest) {
         nom: e.exercises?.nom ?? '',
         isBodyweight: !!e.exercises?.is_bodyweight,
         isUnilateral: !!e.exercises?.is_unilateral,
+        supersetId: e.superset_group != null ? `g${e.superset_group}` : null,
         series: (e.series ?? []).map((sr) => ({
           poids: sr.poids,
           reps: sr.reps,
           rir: sr.rir,
           degressive: sr.degressive,
+          amplitude: sr.amplitude ?? null,
         })),
       })),
     }

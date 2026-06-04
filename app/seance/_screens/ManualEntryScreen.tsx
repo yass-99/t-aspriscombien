@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { NavFn } from '../_lib/types'
-import { REST_PRESETS, SUGGESTIONS, WORKOUT_TYPES } from '../_lib/constants'
-import { formatMMSS, newId } from '../_lib/helpers'
+import { REST_PRESETS, SUGGESTIONS, WORKOUT_TYPES, AMPLITUDE_OPTIONS } from '../_lib/constants'
+import { formatMMSS, amplitudeLabel, newId } from '../_lib/helpers'
 import {
   useExos,
   filterExos,
@@ -27,6 +27,7 @@ type LocalSerie = {
   reps: number
   rir: number
   degressive: boolean
+  amplitude?: '90' | 'partielle' | null
 }
 type LocalExo = {
   tempId: string
@@ -93,7 +94,14 @@ export function ManualEntryScreen({ seanceId, nav }: Props) {
               nom: string
               isBodyweight?: boolean
               isUnilateral?: boolean
-              series: { id: string; poids: number; reps: number; rir: number; degressive: boolean }[]
+              series: {
+                id: string
+                poids: number
+                reps: number
+                rir: number
+                degressive: boolean
+                amplitude?: '90' | 'partielle' | null
+              }[]
             }[]
           }
         }
@@ -112,6 +120,7 @@ export function ManualEntryScreen({ seanceId, nav }: Props) {
               reps: s.reps,
               rir: s.rir,
               degressive: s.degressive,
+              amplitude: s.amplitude ?? null,
             })),
           })),
         })
@@ -212,6 +221,7 @@ export function ManualEntryScreen({ seanceId, nav }: Props) {
           reps: s.reps,
           rir: s.rir,
           degressive: s.degressive,
+          amplitude: s.amplitude ?? null,
         })),
       })),
     }
@@ -873,6 +883,35 @@ function SerieRow({
           />
           dégressive
         </label>
+        <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+          {AMPLITUDE_OPTIONS.map((opt) => {
+            const active = (serie.amplitude ?? 'complete') === opt.id
+            return (
+              <button
+                key={opt.id}
+                onClick={() => onChange({ amplitude: opt.id === 'complete' ? null : opt.id })}
+                aria-pressed={active}
+                title={`amplitude : ${opt.label}`}
+                style={{
+                  appearance: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '3px 8px',
+                  borderRadius: 7,
+                  background: active ? 'var(--brand)' : 'var(--surface-2)',
+                  color: active ? 'var(--brand-ink)' : 'var(--subtle)',
+                  boxShadow: active ? 'none' : '0 0 0 1px var(--line) inset',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  fontFamily: 'var(--font)',
+                  transition: 'all 140ms',
+                }}
+              >
+                {opt.id === 'complete' ? 'ROM' : (amplitudeLabel(opt.id) ?? opt.label)}
+              </button>
+            )
+          })}
+        </div>
       </div>
     </motion.div>
   )

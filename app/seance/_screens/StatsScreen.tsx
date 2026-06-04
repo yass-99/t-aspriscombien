@@ -1434,7 +1434,9 @@ function Hero({
             {trend >= 0 ? '+' : ''}
             {trend}%
           </span>
-          <span style={{ color: 'var(--subtle)', fontWeight: 500 }}>vs période -1</span>
+          <span style={{ color: 'var(--subtle)', fontWeight: 500 }}>
+            vs {PERIODS.find((p) => p.id === period)?.label} précédents
+          </span>
         </motion.div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 16 }}>
@@ -1585,9 +1587,12 @@ function Donut({ items }: { items: DistributionItem[] }) {
   // Précalcul des offsets cumulés via reduce immuable —
   // ESLint react-hooks/immutability interdit la mutation d'une variable locale pendant le render.
   const segments = items.map((d) => ({ d, segLen: (d.volume / total) * C }))
-  const offsets = segments.reduce<number[]>((acc, s, i) => {
+  // acc[i] = longueur cumulée des segments AVANT i (somme positive).
+  // On stocke la somme cumulée, pas l'offset négatif, sinon le cumul se
+  // corrompt dès le 3ᵉ segment (chevauchements + trous dans l'anneau).
+  const offsets = segments.reduce<number[]>((acc, _s, i) => {
     const prevSum = i === 0 ? 0 : acc[i - 1] + segments[i - 1].segLen
-    acc.push(-prevSum)
+    acc.push(prevSum)
     return acc
   }, [])
   return (
@@ -1602,7 +1607,8 @@ function Donut({ items }: { items: DistributionItem[] }) {
           strokeWidth={STROKE}
         />
         {segments.map(({ d, segLen }, i) => {
-          const offset = offsets[i]
+          // strokeDashoffset négatif = on décale le départ du tiret vers l'avant.
+          const offset = -offsets[i]
           return (
             <motion.circle
               key={d.type}
@@ -1616,9 +1622,15 @@ function Donut({ items }: { items: DistributionItem[] }) {
               strokeDashoffset={offset}
               strokeLinecap="butt"
               transform="rotate(-90 50 50)"
-              initial={reduced ? false : { opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.2 + i * 0.08, duration: 0.4 }}
+              // Chaque arc se trace : le tiret croît de 0 à sa longueur,
+              // les segments s'enchaînant dans le sens horaire.
+              initial={reduced ? false : { strokeDasharray: `0 ${C}`, opacity: 0 }}
+              animate={{ strokeDasharray: `${segLen} ${C}`, opacity: 1 }}
+              transition={{
+                delay: 0.2 + i * 0.1,
+                duration: 0.55,
+                ease: [0.22, 1, 0.36, 1],
+              }}
             />
           )
         })}

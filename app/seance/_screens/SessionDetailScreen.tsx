@@ -8,7 +8,7 @@ import { WORKOUT_TYPES } from '../_lib/constants'
 import { formatMMSS } from '../_lib/helpers'
 import { Button, Card, IconButton, Pill, TopBar } from '../_components/primitives'
 import { Check, ChevronDown, ChevronLeft, Copy, Dumbbell, Trash } from '../_components/icons'
-import { fmtChargeLabel, formatSeanceAsText } from '../_lib/helpers'
+import { fmtChargeLabel, amplitudeLabel, formatSeanceAsText } from '../_lib/helpers'
 import { invalidateAfterSeanceMutation } from '../_lib/invalidate'
 import { useProfileHeader } from '../_lib/useProfileHeader'
 import { useToast } from '../../_components/Toast'
@@ -24,12 +24,14 @@ type Serie = {
   reps: number
   rir: number
   degressive: boolean
+  amplitude?: '90' | 'partielle' | null
 }
 type Exo = {
   id: string
   nom: string
   isBodyweight?: boolean
   isUnilateral?: boolean
+  supersetId?: string | null
   series: Serie[]
 }
 type Seance = {
@@ -316,7 +318,16 @@ export function SessionDetailScreen({ seanceId, nav }: Props) {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
             {seance.exos.map((exo, i) => (
-              <ExoCard key={exo.id} exo={exo} index={i} enter={enter(4 + i)} />
+              <ExoCard
+                key={exo.id}
+                exo={exo}
+                index={i}
+                inSuperset={
+                  !!exo.supersetId &&
+                  seance.exos.filter((e) => e.supersetId === exo.supersetId).length > 1
+                }
+                enter={enter(4 + i)}
+              />
             ))}
           </div>
 
@@ -442,10 +453,12 @@ export function SessionDetailScreen({ seanceId, nav }: Props) {
 function ExoCard({
   exo,
   index,
+  inSuperset,
   enter,
 }: {
   exo: Exo
   index: number
+  inSuperset?: boolean
   enter: Record<string, unknown>
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -511,6 +524,7 @@ function ExoCard({
               >
                 {exo.nom}
               </span>
+              {inSuperset && <Pill tone="neutral">superset</Pill>}
               {exo.isBodyweight && <Pill tone="accent">PDC</Pill>}
               {exo.isUnilateral && <Pill tone="neutral">uni</Pill>}
             </div>
@@ -580,6 +594,20 @@ function ExoCard({
                       {fmtChargeLabel(s.poids, exo.isBodyweight)} × {s.reps}
                     </span>
                     <span style={{ color: 'var(--muted)' }}>RIR {s.rir}</span>
+                    {amplitudeLabel(s.amplitude) && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                          background: 'var(--brand-soft)',
+                          color: 'var(--brand-bright)',
+                          fontFamily: 'var(--font)',
+                        }}
+                      >
+                        {amplitudeLabel(s.amplitude)}
+                      </span>
+                    )}
                     {s.degressive && (
                       <span
                         style={{

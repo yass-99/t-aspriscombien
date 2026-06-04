@@ -2,8 +2,8 @@
 
 import { CSSProperties, Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react'
 import type { Exo, Serie, SessionState, TimerState, WorkoutStep } from '../_lib/types'
-import { WORKOUT_TYPES } from '../_lib/constants'
-import { formatMMSS, fmtChargeLabel, newId } from '../_lib/helpers'
+import { WORKOUT_TYPES, AMPLITUDE_OPTIONS, type AmplitudeOptionId } from '../_lib/constants'
+import { formatMMSS, fmtChargeLabel, amplitudeLabel, newId } from '../_lib/helpers'
 import { useRestTimer } from '../_lib/useRestTimer'
 import { useWakeLock } from '../_lib/useWakeLock'
 import { useExos } from '../_lib/useExos'
@@ -36,6 +36,21 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
   const curExIdx = session.currentExoIndex ?? 0
   const curExo = session.exos?.[curExIdx] || { tempId: '', nom: '—', series: [] as Serie[] }
   const type = WORKOUT_TYPES.find((t) => t.id === session.type)
+
+  // Superset : indices (dans l'ordre) des exos du groupe de l'exo courant.
+  const groupIdxs = curExo.supersetId
+    ? session.exos
+        .map((e, i) => ({ e, i }))
+        .filter((x) => x.e.supersetId === curExo.supersetId)
+        .map((x) => x.i)
+    : [curExIdx]
+  const isSuperset = groupIdxs.length > 1
+  const posInGroup = Math.max(0, groupIdxs.indexOf(curExIdx))
+  // Y a-t-il un partenaire à enchaîner (sans repos) après cette série ?
+  const supersetPartnerNext = isSuperset && posInGroup < groupIdxs.length - 1
+  const nextPartnerName = supersetPartnerNext
+    ? session.exos[groupIdxs[posInGroup + 1]]?.nom
+    : null
   const totalExercises = Math.max(4, session.exos?.length || 1)
 
   const lastSerie = curExo.series[curExo.series.length - 1]
@@ -57,6 +72,7 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
   const [reps, setReps] = useState<number | null>(lastSerie?.reps ?? dbMatch?.lastReps ?? 8)
   const [rir, setRir] = useState<number | null>(lastSerie?.rir ?? 2)
   const [degressive, setDegressive] = useState<boolean>(false)
+  const [amplitude, setAmplitude] = useState<AmplitudeOptionId>(lastSerie?.amplitude ?? 'complete')
 
   const exKey = curExo.tempId || curExo.nom
 
@@ -88,6 +104,7 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
     setReps(ls?.reps ?? dbMatch?.lastReps ?? 8)
     setRir(ls?.rir ?? 2)
     setDegressive(false)
+    setAmplitude(ls?.amplitude ?? 'complete')
   }, [exKey, curExo.series.length, curExo.isBodyweight, dbMatch])
 
   const { adjust: adjustTimer } = useRestTimer(session, setSession)
@@ -103,12 +120,32 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
       poids: weight,
       rir,
       degressive,
+      amplitude: amplitude === 'complete' ? null : amplitude,
     }
+    // Superset : tant qu'il reste un partenaire dans le tour, on enchaîne sur lui
+    // SANS repos (série A → série B). Le repos n'arrive qu'après le dernier membre.
+    const hasPartnerNext = isSuperset && posInGroup < groupIdxs.length - 1
+    const nextExoIdx = hasPartnerNext ? groupIdxs[posInGroup + 1] : curExIdx
     setSession((s) => {
       const exos = [...s.exos]
       exos[curExIdx] = {
         ...exos[curExIdx],
         series: [...exos[curExIdx].series, newSerie],
+      }
+      if (hasPartnerNext) {
+        return {
+          ...s,
+          exos,
+          currentExoIndex: nextExoIdx,
+          currentSerieIndex: exos[nextExoIdx].series.length,
+          timer: {
+            remainingSec: 0,
+            status: 'idle',
+            overtimeSec: 0,
+            justFinished: false,
+            targetEndAt: null,
+          },
+        }
       }
       return {
         ...s,
@@ -126,16 +163,22 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
   }
 
   const nouvelleSerie = () =>
-    setSession((s) => ({
-      ...s,
-      timer: {
-        remainingSec: 0,
-        status: 'idle',
-        overtimeSec: 0,
-        justFinished: false,
-        targetEndAt: null,
-      },
-    }))
+    setSession((s) => {
+      // Superset : le tour suivant repart du 1er membre du groupe.
+      const backIdx = isSuperset ? groupIdxs[0] : s.currentExoIndex
+      return {
+        ...s,
+        currentExoIndex: backIdx,
+        currentSerieIndex: s.exos[backIdx]?.series.length ?? 0,
+        timer: {
+          remainingSec: 0,
+          status: 'idle',
+          overtimeSec: 0,
+          justFinished: false,
+          targetEndAt: null,
+        },
+      }
+    })
 
   const exerciceSuivant = () => {
     setSession((s) => ({
@@ -237,6 +280,24 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
             >
               Série {setNumber}
             </span>
+            {isSuperset && (
+              <>
+                <span style={{ color: 'var(--subtle)' }}>·</span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: 0.3,
+                    color: 'var(--brand-bright)',
+                    background: 'var(--brand-soft)',
+                    padding: '2px 6px',
+                    borderRadius: 5,
+                  }}
+                >
+                  Superset {posInGroup + 1}/{groupIdxs.length}
+                </span>
+              </>
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
             <span
@@ -415,6 +476,30 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
           </div>
         </Card>
 
+        <Card style={{ padding: 14, ...rise(215) }}>
+          <div
+            style={{
+              fontSize: 12,
+              color: 'var(--muted)',
+              fontWeight: 500,
+              letterSpacing: -0.1,
+              marginBottom: 8,
+            }}
+          >
+            Amplitude
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {AMPLITUDE_OPTIONS.map((opt) => (
+              <AmplitudeChip
+                key={opt.id}
+                label={opt.label}
+                active={amplitude === opt.id}
+                onClick={() => setAmplitude(opt.id)}
+              />
+            ))}
+          </div>
+        </Card>
+
         {curExo.series.length > 0 && (
           <div style={{ ...rise(240) }}>
             <div
@@ -522,6 +607,23 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
                       {s.reps == null ? 'JSP' : s.reps}
                     </span>
                     {s.degressive && <DropIcon active size={12} style={{ marginLeft: 4 }} />}
+                    {amplitudeLabel(s.amplitude) && (
+                      <span
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          letterSpacing: 0.3,
+                          color: 'var(--brand-bright)',
+                          background: 'var(--brand-soft)',
+                          padding: '2px 5px',
+                          borderRadius: 5,
+                          marginLeft: 4,
+                          fontFamily: 'var(--font)',
+                        }}
+                      >
+                        {amplitudeLabel(s.amplitude)}
+                      </span>
+                    )}
                   </span>
                   <span
                     style={{
@@ -584,8 +686,12 @@ export function LoggingScreen({ session, setSession, nav }: Props) {
             </Button>
             <StopButton onClick={finish} />
           </div>
-          <Button onClick={enregistrer} icon={<Check size={16} />}>
-            Enregistrer
+          <Button
+            onClick={enregistrer}
+            icon={<Check size={16} />}
+            trailingIcon={supersetPartnerNext ? <ChevronRight size={16} /> : undefined}
+          >
+            {supersetPartnerNext ? `Enregistrer · puis ${nextPartnerName}` : 'Enregistrer'}
           </Button>
         </div>
       </div>
@@ -1004,6 +1110,44 @@ function FlagChip({
       >
         {active && <Check size={11} stroke={3} />}
       </span>
+      {label}
+    </button>
+  )
+}
+
+// Chip de sélection d'amplitude (segment d'un groupe de 3), aligné sur le ton du
+// bouton « Dégressive » et de FlagChip.
+function AmplitudeChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      style={{
+        flex: 1,
+        minWidth: 0,
+        appearance: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        height: 44,
+        borderRadius: 12,
+        background: active ? 'var(--brand)' : 'var(--surface)',
+        color: active ? 'var(--brand-ink)' : 'var(--ink-2)',
+        boxShadow: active
+          ? '0 8px 22px -8px color-mix(in oklch, var(--brand) 55%, transparent)'
+          : '0 0 0 1px var(--line) inset',
+        fontSize: 13,
+        fontWeight: 600,
+        transition: 'all 200ms',
+      }}
+    >
       {label}
     </button>
   )

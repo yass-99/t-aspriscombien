@@ -11,6 +11,16 @@ export type WorkoutTypeId = (typeof WORKOUT_TYPES)[number]['id']
 
 export const REST_PRESETS = [60, 90, 120, 180] as const
 
+// Amplitude de mouvement (ROM). 'complete' est l'option d'UI par défaut ; elle
+// n'est jamais persistée (→ NULL) ni rendue dans l'export LLM. Cf. types.ts.
+export const AMPLITUDE_OPTIONS = [
+  { id: 'complete', label: 'Complète' },
+  { id: '90', label: '90°' },
+  { id: 'partielle', label: 'Partielle' },
+] as const
+
+export type AmplitudeOptionId = (typeof AMPLITUDE_OPTIONS)[number]['id']
+
 export const SUGGESTIONS: Record<string, string[]> = {
   push: [
     'Développé couché',

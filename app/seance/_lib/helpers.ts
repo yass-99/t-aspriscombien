@@ -65,6 +65,14 @@ export function fmtChargeLabel(poids: number, isBodyweight?: boolean): string {
   return `${fmtPoids(poids)} kg`
 }
 
+// Libellé d'amplitude pour l'affichage et l'export. null/undefined = complète
+// → renvoie null (rien à afficher, on garde le texte coach épuré).
+export function amplitudeLabel(a?: string | null): string | null {
+  if (a === '90') return '90°'
+  if (a === 'partielle') return 'partielle'
+  return null
+}
+
 // En-tête de profil injecté en tête de l'export texte (contexte pour le LLM).
 export type ProfileHeader = {
   sexe?: 'H' | 'F' | 'A' | null
@@ -83,16 +91,51 @@ export function formatProfileLine(p?: ProfileHeader): string | null {
   return parts.length ? `Profil : ${parts.join(', ')}` : null
 }
 
+type ExoSerieLike = {
+  poids: number
+  reps: number | null
+  rir: number | null
+  degressive: boolean
+  amplitude?: string | null
+}
+type ExoLike = {
+  nom: string
+  isBodyweight?: boolean
+  isUnilateral?: boolean
+  supersetId?: string | null
+  series: ExoSerieLike[]
+}
 type SeanceLike = {
   date: string
   type: string
   restTargetSec: number
-  exos: {
-    nom: string
-    isBodyweight?: boolean
-    isUnilateral?: boolean
-    series: { poids: number; reps: number | null; rir: number | null; degressive: boolean }[]
-  }[]
+  exos: ExoLike[]
+}
+
+// Regroupe les exos consécutifs partageant un même supersetId (non nul) ; les exos
+// solo restent dans un groupe d'un seul élément. Sert au rendu « Superset » de
+// l'export LLM (l'ordre du tableau encode déjà l'ordre du superset).
+function groupSupersets<T extends { supersetId?: string | null }>(exos: T[]): T[][] {
+  const groups: T[][] = []
+  for (const exo of exos) {
+    const last = groups[groups.length - 1]
+    if (exo.supersetId && last && last[0].supersetId === exo.supersetId) {
+      last.push(exo)
+    } else {
+      groups.push([exo])
+    }
+  }
+  return groups
+}
+
+// Ligne markdown d'une série, avec amplitude (si non complète) puis flag dégressive.
+function formatSerieLine(i: number, s: ExoSerieLike, isBodyweight?: boolean): string {
+  const amp = amplitudeLabel(s.amplitude)
+  const ampStr = amp ? ` · ${amp}` : ''
+  const flag = s.degressive ? ' (dégressive)' : ''
+  const reps = s.reps == null ? 'JSP' : s.reps
+  const rir = s.rir == null ? 'JSP' : s.rir
+  return `${i + 1}. ${fmtChargeLabel(s.poids, isBodyweight)} × ${reps} reps · RIR ${rir}${ampStr}${flag}`
 }
 
 export function formatSeanceAsText(seance: SeanceLike, profile?: ProfileHeader): string {
@@ -128,15 +171,20 @@ export function formatSeanceAsText(seance: SeanceLike, profile?: ProfileHeader):
   )
   lines.push('')
 
-  for (const exo of exos) {
-    lines.push(`## ${exo.nom}${exo.isUnilateral ? ' (unilatéral)' : ''}`)
-    exo.series.forEach((s, i) => {
-      const flag = s.degressive ? ' (dégressive)' : ''
-      const reps = s.reps == null ? 'JSP' : s.reps
-      const rir = s.rir == null ? 'JSP' : s.rir
-      lines.push(`${i + 1}. ${fmtChargeLabel(s.poids, exo.isBodyweight)} × ${reps} reps · RIR ${rir}${flag}`)
-    })
-    lines.push('')
+  for (const group of groupSupersets(exos)) {
+    const isSuperset = group.length > 1
+    if (isSuperset) {
+      lines.push(`## Superset — ${group.map((e) => e.nom).join(' + ')} (alterné)`)
+    }
+    for (const exo of group) {
+      lines.push(
+        isSuperset
+          ? `**${exo.nom}${exo.isUnilateral ? ' (unilatéral)' : ''}**`
+          : `## ${exo.nom}${exo.isUnilateral ? ' (unilatéral)' : ''}`,
+      )
+      exo.series.forEach((s, i) => lines.push(formatSerieLine(i, s, exo.isBodyweight)))
+      lines.push('')
+    }
   }
 
   return lines.join('\n').trimEnd() + '\n'
@@ -160,18 +208,13 @@ Objectifs de ta réponse :
 
 Semaine d'entraînement :`
 
-// Une séance muscu telle que renvoyée par /api/week (réutilise SeanceLike).
+// Une séance muscu telle que renvoyée par /api/week (réutilise ExoLike).
 type WeekSeance = {
   id: string
   date: string
   type: string
   restTargetSec: number
-  exos: {
-    nom: string
-    isBodyweight?: boolean
-    isUnilateral?: boolean
-    series: { poids: number; reps: number | null; rir: number | null; degressive: boolean }[]
-  }[]
+  exos: ExoLike[]
 }
 
 export type WeekData = {
@@ -366,22 +409,24 @@ export function formatWeekAsText(
           `- Repos cible ${formatMMSS(s.restTargetSec)} · ${s.exos.length} exo${s.exos.length > 1 ? 's' : ''} · ${seanceSeriesCount(s)} séries · ${seanceVolume(s).toLocaleString('fr-FR')} kg`,
         )
         out.push('')
-        for (const exo of s.exos) {
-          const counted = exo.series.filter((sr) => sr.reps != null)
-          if (counted.length === 0) continue
-          out.push(`**${exo.nom}${exo.isUnilateral ? ' (unilatéral)' : ''}**`)
-          counted.forEach((sr, i) => {
-            const flag = sr.degressive ? ' (dégressive)' : ''
-            out.push(
-              `${i + 1}. ${fmtChargeLabel(sr.poids, exo.isBodyweight)} × ${sr.reps} reps · RIR ${sr.rir == null ? 'JSP' : sr.rir}${flag}`,
-            )
-          })
-          // Référence de progression : meilleure série de cet exo la semaine d'avant.
-          const ref = prevTopByExo.get(exo.nom.trim().toLowerCase())
-          if (ref) {
-            out.push(`   ↳ réf. sem. dernière : ${fmtChargeLabel(ref.poids, ref.isBodyweight)} × ${ref.reps}`)
+        for (const group of groupSupersets(s.exos)) {
+          // Membres du groupe ayant au moins une série comptée (reps != null).
+          const counted = group.filter((e) => e.series.some((sr) => sr.reps != null))
+          if (counted.length > 1) {
+            out.push(`_Superset — ${counted.map((e) => e.nom).join(' + ')} (alterné)_`)
           }
-          out.push('')
+          for (const exo of group) {
+            const series = exo.series.filter((sr) => sr.reps != null)
+            if (series.length === 0) continue
+            out.push(`**${exo.nom}${exo.isUnilateral ? ' (unilatéral)' : ''}**`)
+            series.forEach((sr, i) => out.push(formatSerieLine(i, sr, exo.isBodyweight)))
+            // Référence de progression : meilleure série de cet exo la semaine d'avant.
+            const ref = prevTopByExo.get(exo.nom.trim().toLowerCase())
+            if (ref) {
+              out.push(`   ↳ réf. sem. dernière : ${fmtChargeLabel(ref.poids, ref.isBodyweight)} × ${ref.reps}`)
+            }
+            out.push('')
+          }
         }
         return out
       },
@@ -440,6 +485,14 @@ const PERIOD_LABEL_LONG: Record<Period, string> = {
   '7d': '7 derniers jours',
   '30d': '30 derniers jours',
   '90d': '90 derniers jours',
+}
+
+// Durée de la période, pour libeller la comparaison « vs N j précédents »
+// (fenêtre glissante de même longueur juste avant la période affichée).
+const PERIOD_DAYS_LABEL: Record<Period, string> = {
+  '7d': '7 j',
+  '30d': '30 j',
+  '90d': '90 j',
 }
 
 export const PERIOD_COACH_PROMPT = `Tu es un coach de musculation et d'athlétisme.
@@ -517,7 +570,9 @@ export function formatPeriodForLLM(
     lines.push('## Exercices les plus travaillés')
     data.topExos.forEach((e, i) => {
       const trend =
-        e.trendPct != null ? ` · ${e.trendPct >= 0 ? '+' : ''}${e.trendPct} % vs période -1` : ''
+        e.trendPct != null
+          ? ` · ${e.trendPct >= 0 ? '+' : ''}${e.trendPct} % vs ${PERIOD_DAYS_LABEL[period]} précédents`
+          : ''
       lines.push(`${i + 1}. ${e.nom} — ${e.volume.toLocaleString('fr-FR')} kg${trend}`)
     })
     lines.push('')
@@ -592,15 +647,20 @@ export function formatSessionAsText(session: SessionState, profile?: ProfileHead
   )
   lines.push('')
 
-  for (const exo of exos) {
-    lines.push(`## ${exo.nom}${exo.isUnilateral ? ' (unilatéral)' : ''}`)
-    exo.series.forEach((s, i) => {
-      const flag = s.degressive ? ' (dégressive)' : ''
-      const reps = s.reps == null ? 'JSP' : s.reps
-      const rir = s.rir == null ? 'JSP' : s.rir
-      lines.push(`${i + 1}. ${fmtChargeLabel(s.poids, exo.isBodyweight)} × ${reps} reps · RIR ${rir}${flag}`)
-    })
-    lines.push('')
+  for (const group of groupSupersets(exos)) {
+    const isSuperset = group.length > 1
+    if (isSuperset) {
+      lines.push(`## Superset — ${group.map((e) => e.nom).join(' + ')} (alterné)`)
+    }
+    for (const exo of group) {
+      lines.push(
+        isSuperset
+          ? `**${exo.nom}${exo.isUnilateral ? ' (unilatéral)' : ''}**`
+          : `## ${exo.nom}${exo.isUnilateral ? ' (unilatéral)' : ''}`,
+      )
+      exo.series.forEach((s, i) => lines.push(formatSerieLine(i, s, exo.isBodyweight)))
+      lines.push('')
+    }
   }
 
   return lines.join('\n').trimEnd() + '\n'

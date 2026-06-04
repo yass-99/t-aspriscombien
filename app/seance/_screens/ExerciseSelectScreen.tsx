@@ -6,7 +6,7 @@ import { SUGGESTIONS, WORKOUT_TYPES } from '../_lib/constants'
 import { formatMMSS, newId } from '../_lib/helpers'
 import { useExos, filterExos, MAX_EXO_PILLS, type ExoSuggestion } from '../_lib/useExos'
 import { Button, IconButton, Pill, Steps, StopSquare, TopBar } from '../_components/primitives'
-import { Check, ChevronLeft, ChevronRight, Dumbbell, Search, Timer } from '../_components/icons'
+import { Check, ChevronLeft, ChevronRight, Dumbbell, Plus, Search, Timer, X } from '../_components/icons'
 
 type Props = {
   session: SessionState
@@ -28,6 +28,11 @@ export function ExerciseSelectScreen({ session, setSession, nav }: Props) {
   const prevExos = session.exos || []
 
   const [name, setName] = useState(isFirst ? session.exos?.[0]?.nom || '' : '')
+  // Membres mis en attente pour former un superset (l'exo courant du champ s'y
+  // ajoute au démarrage). Vide = flux solo classique.
+  const [staged, setStaged] = useState<
+    { nom: string; isBodyweight: boolean; isUnilateral: boolean }[]
+  >([])
   const inputRef = useRef<HTMLInputElement | null>(null)
   const type = WORKOUT_TYPES.find((t) => t.id === session.type)
   const [blurKick, setBlurKick] = useState(true)
@@ -75,17 +80,40 @@ export function ExerciseSelectScreen({ session, setSession, nav }: Props) {
       .slice(0, slots)
   }, [session.type, candidates, prevExos])
 
-  const confirm = (chosenName?: string) => {
-    const finalName = (chosenName ?? name).trim()
-    if (finalName.length < 2) return
-    // Pré-remplit les flags PDC / unilatéral depuis le dernier usage du même exo.
-    const nomKey = finalName.toLowerCase()
-    const match = dbExos.find((e) => e.nom.trim().toLowerCase() === nomKey)
-    const newExo = {
-      tempId: newId('e'),
+  // Construit les champs d'un exo depuis un nom, en pré-remplissant les flags
+  // PDC / unilatéral depuis le dernier usage du même exo (catalogue dbExos).
+  const buildExoFields = (finalName: string) => {
+    const match = dbExos.find((e) => e.nom.trim().toLowerCase() === finalName.toLowerCase())
+    return {
       nom: finalName,
       isBodyweight: match?.lastIsBodyweight ?? false,
       isUnilateral: match?.lastIsUnilateral ?? false,
+    }
+  }
+
+  // Nombre de membres si on démarrait le superset maintenant (staged + champ courant).
+  const stagedAndCurrent = canContinue && !staged.some((m) => m.nom.toLowerCase() === name.trim().toLowerCase())
+  const supersetCount = staged.length + (stagedAndCurrent ? 1 : 0)
+
+  // « + » : met l'exo courant en attente pour le lier en superset, vide le champ.
+  const addToSuperset = (chosenName?: string) => {
+    const finalName = (chosenName ?? name).trim()
+    if (finalName.length < 2) return
+    if (!staged.some((m) => m.nom.toLowerCase() === finalName.toLowerCase())) {
+      setStaged((prev) => [...prev, buildExoFields(finalName)])
+    }
+    setName('')
+    inputRef.current?.focus()
+  }
+
+  const removeStaged = (idx: number) => setStaged((prev) => prev.filter((_, i) => i !== idx))
+
+  const confirm = (chosenName?: string) => {
+    const finalName = (chosenName ?? name).trim()
+    if (finalName.length < 2) return
+    const newExo = {
+      tempId: newId('e'),
+      ...buildExoFields(finalName),
       series: [],
     }
     setSession((s) => {
@@ -101,6 +129,29 @@ export function ExerciseSelectScreen({ session, setSession, nav }: Props) {
         ...s,
         exos: [...s.exos, newExo],
         currentExoIndex: s.exos.length,
+        currentSerieIndex: 0,
+      }
+    })
+    nav('logging')
+  }
+
+  // Démarre un superset : tous les membres (staged + champ courant si valide)
+  // partagent un même supersetId et sont logués en alternance dès le 1er.
+  const startSuperset = () => {
+    const members = [...staged]
+    const cur = name.trim()
+    if (cur.length >= 2 && !members.some((m) => m.nom.toLowerCase() === cur.toLowerCase())) {
+      members.push(buildExoFields(cur))
+    }
+    if (members.length < 2) return
+    const supersetId = newId('ss')
+    const newExos = members.map((m) => ({ tempId: newId('e'), supersetId, series: [], ...m }))
+    setSession((s) => {
+      const baseExos = isFirst ? [] : s.exos
+      return {
+        ...s,
+        exos: [...baseExos, ...newExos],
+        currentExoIndex: baseExos.length,
         currentSerieIndex: 0,
       }
     })
@@ -335,8 +386,71 @@ export function ExerciseSelectScreen({ session, setSession, nav }: Props) {
           </div>
         )}
 
+        {/* Superset en cours : membres déjà liés. Le prochain exo choisi/saisi
+            s'ajoutera au démarrage via « Commencer le superset ». */}
+        {staged.length > 0 && (
+          <div style={{ marginTop: 20, ...rise(300) }}>
+            <div
+              style={{
+                fontSize: 11,
+                color: 'var(--brand-bright)',
+                fontWeight: 700,
+                letterSpacing: 0.4,
+                textTransform: 'uppercase',
+                marginBottom: 8,
+              }}
+            >
+              Superset en cours
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {staged.map((m, i) => (
+                <span
+                  key={`${m.nom}-${i}`}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '8px 8px 8px 12px',
+                    borderRadius: 999,
+                    background: 'var(--brand-soft)',
+                    color: 'var(--brand-bright)',
+                    boxShadow: '0 0 0 1.5px var(--brand) inset',
+                    fontSize: 13,
+                    fontWeight: 600,
+                  }}
+                >
+                  {m.nom}
+                  <button
+                    onClick={() => removeStaged(i)}
+                    aria-label={`retirer ${m.nom} du superset`}
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: 999,
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: 'color-mix(in oklch, var(--brand) 22%, transparent)',
+                      color: 'var(--brand-bright)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <p style={{ margin: '8px 2px 0', fontSize: 11, color: 'var(--muted)' }}>
+              Choisis encore un exo puis « Commencer le superset » — ils s’enchaîneront
+              en alternance, une série chacun.
+            </p>
+          </div>
+        )}
+
         {/* Repli secondaire : chercher dans tout l'historique ou créer un exo
-            absent des pills. Champ compact et discret — pas le héros de l'écran. */}
+            absent des pills. Champ compact et discret — pas le héros de l'écran.
+            Le « + » lie l'exo courant en superset au lieu de démarrer. */}
         <div
           style={{
             marginTop: 22,
@@ -388,6 +502,30 @@ export function ExerciseSelectScreen({ session, setSession, nav }: Props) {
               padding: 0,
             }}
           />
+          {/* « + » : lie l'exo courant en superset (apparaît dès qu'un nom est saisi). */}
+          {canContinue && (
+            <button
+              onClick={() => addToSuperset()}
+              aria-label="Lier en superset"
+              title="Lier en superset"
+              style={{
+                width: 34,
+                height: 34,
+                flexShrink: 0,
+                borderRadius: 9,
+                border: 'none',
+                cursor: 'pointer',
+                background: 'var(--brand-soft)',
+                color: 'var(--brand-bright)',
+                boxShadow: '0 0 0 1.5px var(--brand) inset',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Plus size={16} stroke={2.6} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -435,17 +573,32 @@ export function ExerciseSelectScreen({ session, setSession, nav }: Props) {
         >
           {/* Premier exo → CTA pleine largeur. Exos suivants → « Commencer cet
               exercice » et « Stop » côte à côte : terminer la séance vit en bas,
-              près du pouce, plus en haut dans la TopBar. */}
+              près du pouce, plus en haut dans la TopBar. Si un superset est en
+              cours de constitution, le CTA bascule sur « Commencer le superset ». */}
           <div style={{ display: 'flex', gap: 8 }}>
-            <Button
-              onClick={() => confirm()}
-              disabled={!canContinue}
-              gpu
-              trailingIcon={<ChevronRight size={16} />}
-              style={{ flex: 1, boxShadow: 'none' }}
-            >
-              {isFirst ? 'Commencer' : 'Commencer'}
-            </Button>
+            {staged.length > 0 ? (
+              <Button
+                onClick={startSuperset}
+                disabled={supersetCount < 2}
+                gpu
+                trailingIcon={<ChevronRight size={16} />}
+                style={{ flex: 1, boxShadow: 'none' }}
+              >
+                {supersetCount < 2
+                  ? 'Ajoute un 2ᵉ exo'
+                  : `Commencer le superset (${supersetCount})`}
+              </Button>
+            ) : (
+              <Button
+                onClick={() => confirm()}
+                disabled={!canContinue}
+                gpu
+                trailingIcon={<ChevronRight size={16} />}
+                style={{ flex: 1, boxShadow: 'none' }}
+              >
+                Commencer
+              </Button>
+            )}
             {!isFirst && <StopButton onClick={() => nav('summary')} />}
           </div>
         </div>

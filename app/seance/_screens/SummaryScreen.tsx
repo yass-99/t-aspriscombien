@@ -3,8 +3,8 @@
 import { Dispatch, SetStateAction, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Serie, SessionState, WorkoutStep } from '../_lib/types'
-import { WORKOUT_TYPES } from '../_lib/constants'
-import { fmtChargeLabel, formatSessionAsText } from '../_lib/helpers'
+import { WORKOUT_TYPES, AMPLITUDE_OPTIONS } from '../_lib/constants'
+import { fmtChargeLabel, amplitudeLabel, formatSessionAsText } from '../_lib/helpers'
 import { invalidateAfterSeanceMutation } from '../_lib/invalidate'
 import { useProfileHeader } from '../_lib/useProfileHeader'
 import { Button, Card, IconButton, Pill, TopBar } from '../_components/primitives'
@@ -30,6 +30,13 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
     .map((e) => ({ ...e, series: e.series.filter((s) => s.reps != null) }))
     .filter((e) => e.series.length > 0)
   const type = WORKOUT_TYPES.find((t) => t.id === session.type)
+
+  // Tailles des supersets (token → nombre de membres) pour n'afficher le badge
+  // que sur les exos réellement liés (≥ 2 membres).
+  const supersetSizes = new Map<string, number>()
+  for (const e of session.exos ?? []) {
+    if (e.supersetId) supersetSizes.set(e.supersetId, (supersetSizes.get(e.supersetId) ?? 0) + 1)
+  }
 
   const updateSerie = (exoIdx: number, serieIdx: number, patch: Partial<Serie>) => {
     setSession((s) => {
@@ -343,6 +350,9 @@ export function SummaryScreen({ session, setSession, nav, resetSession }: Props)
                       >
                         {exo.nom}
                       </span>
+                      {exo.supersetId && (supersetSizes.get(exo.supersetId) ?? 0) > 1 && (
+                        <Pill tone="neutral">superset</Pill>
+                      )}
                       {exo.isBodyweight && <Pill tone="accent">PDC</Pill>}
                       {exo.isUnilateral && <Pill tone="neutral">uni</Pill>}
                     </div>
@@ -748,6 +758,10 @@ function EditableSerieRow({
         />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+        <AmplitudeCycleButton
+          amplitude={serie.amplitude}
+          onChange={(amplitude) => onPatch({ amplitude })}
+        />
         <button
           onClick={() => onPatch({ degressive: !serie.degressive })}
           title="dégressive"
@@ -787,6 +801,49 @@ function EditableSerieRow({
         </button>
       </div>
     </div>
+  )
+}
+
+// Bouton compact qui cycle l'amplitude (Complète → 90° → Partielle → …). Affiche
+// le libellé court quand non complète, sinon un « ROM » discret (état par défaut).
+function AmplitudeCycleButton({
+  amplitude,
+  onChange,
+}: {
+  amplitude?: Serie['amplitude']
+  onChange: (a: Serie['amplitude']) => void
+}) {
+  const current = amplitude ?? 'complete'
+  const idx = AMPLITUDE_OPTIONS.findIndex((o) => o.id === current)
+  const next = AMPLITUDE_OPTIONS[(idx + 1) % AMPLITUDE_OPTIONS.length].id
+  const label = amplitudeLabel(amplitude)
+  const active = label != null
+  return (
+    <button
+      onClick={() => onChange(next === 'complete' ? null : next)}
+      title={`amplitude : ${AMPLITUDE_OPTIONS[idx]?.label ?? 'Complète'} (taper pour changer)`}
+      aria-label="amplitude de la série"
+      style={{
+        height: 28,
+        minWidth: 28,
+        padding: '0 6px',
+        borderRadius: 7,
+        border: 'none',
+        cursor: 'pointer',
+        background: active ? 'var(--accent)' : 'var(--surface-2)',
+        color: active ? 'var(--accent-ink)' : 'var(--subtle)',
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: 0.2,
+        fontFamily: 'var(--font)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transition: 'all 140ms',
+      }}
+    >
+      {label ?? 'ROM'}
+    </button>
   )
 }
 

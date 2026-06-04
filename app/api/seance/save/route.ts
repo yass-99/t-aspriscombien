@@ -79,8 +79,20 @@ export async function POST(req: NextRequest) {
 
   const seanceId = seance.id as string
 
+  // Supersets : les supersetId (tokens client) sont mappés vers des entiers stables
+  // par séance (1, 2, …) pour la colonne exos.superset_group.
+  const supersetGroups = new Map<string, number>()
+
   for (const exo of sessionState.exos) {
     if (!exo.series || exo.series.length === 0) continue
+
+    let supersetGroup: number | null = null
+    if (exo.supersetId) {
+      if (!supersetGroups.has(exo.supersetId)) {
+        supersetGroups.set(exo.supersetId, supersetGroups.size + 1)
+      }
+      supersetGroup = supersetGroups.get(exo.supersetId)!
+    }
 
     // nom + flags vivent désormais sur exercises → résolution (ou création).
     const exerciseId = await resolveExerciseId(
@@ -107,6 +119,7 @@ export async function POST(req: NextRequest) {
       .insert({
         seance_id: seanceId,
         exercise_id: exerciseId,
+        superset_group: supersetGroup,
       })
       .select('id')
       .single()
@@ -135,6 +148,7 @@ export async function POST(req: NextRequest) {
         recup: sessionState.restTargetSec,
         rir: s.rir ?? 0,
         degressive: s.degressive,
+        amplitude: s.amplitude ?? null,
       }))
     if (seriesRows.length === 0) continue
 

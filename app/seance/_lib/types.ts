@@ -36,6 +36,10 @@ export type NavContext = {
 
 export type NavFn = (step: WorkoutStep, ctx?: NavContext) => void
 
+// Amplitude de mouvement (ROM) d'une série. L'absence de valeur (undefined/null)
+// dénote une amplitude « complète » — jamais stockée explicitement.
+export type Amplitude = '90' | 'partielle'
+
 export type Serie = {
   tempId: string
   // null = série « non comptée » — ignorée dans les calculs et exclue à l'enregistrement.
@@ -43,6 +47,8 @@ export type Serie = {
   poids: number
   rir: number | null
   degressive: boolean
+  // null/undefined = amplitude complète (cas par défaut, masqué dans l'export).
+  amplitude?: Amplitude | null
 }
 
 export type Exo = {
@@ -52,6 +58,8 @@ export type Exo = {
   isBodyweight?: boolean
   // Exercice unilatéral — indication seule, aucun impact sur les calculs.
   isUnilateral?: boolean
+  // Superset : token partagé par les exos d'un même groupe alterné (null = solo).
+  supersetId?: string | null
   series: Serie[]
 }
 
