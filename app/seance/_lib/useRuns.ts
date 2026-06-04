@@ -5,6 +5,7 @@ import type { Run } from './types'
 import { createCachedResource } from './createCachedResource'
 import { invalidateHomeDashboard } from './useHomeDashboard'
 import { invalidateHeatmap } from './useHeatmap'
+import { isoLocalDate } from './profile'
 
 const STALE_MS = 3 * 60 * 1000 // 3 min — cohérent avec useExos.
 
@@ -43,7 +44,9 @@ export function useRuns(distance?: number) {
       const res = await fetch('/api/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        // Date LOCALE par défaut (l'athlé n'en fournit pas) : sans ça, le serveur
+        // retombe sur la date UTC et la séance peut tomber la veille/le lendemain.
+        body: JSON.stringify({ ...payload, date: payload.date ?? isoLocalDate() }),
       })
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
