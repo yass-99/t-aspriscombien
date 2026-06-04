@@ -109,6 +109,11 @@ export default function SessionClient() {
     // Distance pré-sélectionnée : null par défaut → ChronoView utilise la dernière utilisée.
     setAthleticsInitialDistance(ctx?.athleticsDistance ?? null)
     setConfigInitialStep(ctx?.configStep ?? 'type')
+    // Séance planifiée (muscu) : préremplit le type et ouvre directement le chrono.
+    if (ctx?.plannedType) {
+      setSession((prev) => ({ ...prev, type: ctx.plannedType! }))
+      setConfigInitialStep('chrono')
+    }
     if (ctx?.athleticsRunIds) {
       setAthleticsRunIds(ctx.athleticsRunIds)
       // Provenance déduite de l'écran qui déclenche : history → 'history', sinon 'live'.

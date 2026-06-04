@@ -1,11 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { animate, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
+import { animate, AnimatePresence, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
 import type { NavFn, Run, SessionState } from '../_lib/types'
 import { daysAgo, formatSeanceDate } from '../_lib/helpers'
 import { formatChrono } from '../_lib/runs'
-import { weekStartMonday } from '../_lib/profile'
+import { weekStartMonday, weekKey, isoLocalDate } from '../_lib/profile'
+import { usePlan } from '../_lib/usePlan'
+import { TYPE_LABELS } from '../_lib/plan'
 import { WORKOUT_TYPES } from '../_lib/constants'
 import { smoothLineFromValues, sampleSmoothByValues } from '../_lib/smoothPath'
 import { useHomeDashboard } from '../_lib/useHomeDashboard'
@@ -30,6 +32,7 @@ type Props = {
 export function IdleScreen({ nav }: Props) {
   const { data, loading } = useHomeDashboard()
   const { runs } = useRuns()
+  const { entries: planEntries } = usePlan(weekKey())
   const reduce = useReducedMotion()
   const mounted = useMounted()
   // `useHomeDashboard` bootstrappe `loading=false` SYNCHRONEMENT depuis le cache
@@ -39,6 +42,11 @@ export function IdleScreen({ nav }: Props) {
   // révèle donc les DONNÉES qu'après le montage : 1er rendu client === serveur
   // (skeleton), puis cascade cinématique côté client uniquement.
   const pending = loading || !mounted
+  // Séance planifiée aujourd'hui (gate `mounted` → pas de mismatch d'hydratation).
+  const plannedToday = mounted
+    ? planEntries.find((e) => e.date === isoLocalDate()) ?? null
+    : null
+  const plannedLabel = plannedToday ? TYPE_LABELS[plannedToday.type] ?? 'séance' : null
   const [weekSheetOpen, setWeekSheetOpen] = useState(false)
   const [blurKick, setBlurKick] = useState(true)
 
@@ -574,14 +582,146 @@ export function IdleScreen({ nav }: Props) {
             padding: '0 20px calc(var(--cta-pad-bottom, 12px) + env(safe-area-inset-bottom, 0px))',
           }}
         >
-          <Button size="lg" onClick={() => nav('config')} icon={<Dumbbell size={16} />} gpu style={{ boxShadow: 'none' }}>
-            Commencer une séance
-          </Button>
+          {plannedToday ? (
+            <SplitStartButton
+              label={plannedLabel ?? 'séance'}
+              reduce={reduce}
+              onStart={() =>
+                plannedToday.type === 'athletics'
+                  ? nav('athletics')
+                  : nav('config', { plannedType: plannedToday.type })
+              }
+              onFree={() => nav('config')}
+            />
+          ) : (
+            <Button size="lg" onClick={() => nav('config')} icon={<Dumbbell size={16} />} gpu style={{ boxShadow: 'none' }}>
+              Commencer une séance
+            </Button>
+          )}
         </div>
       </div>
 
       <WeekReportSheet open={weekSheetOpen} onClose={() => setWeekSheetOpen(false)} />
     </div>
+  )
+}
+
+// CTA du jour J : « Commencer {type} » (→ chrono/athlé) + flèche révélant le
+// seul autre choix, « Séance libre » (→ config, rien de présélectionné).
+function SplitStartButton({
+  label,
+  reduce,
+  onStart,
+  onFree,
+}: {
+  label: string
+  reduce: boolean | null
+  onStart: () => void
+  onFree: () => void
+}) {
+  const [openMenu, setOpenMenu] = useState(false)
+  return (
+    <div style={{ position: 'relative' }}>
+      <AnimatePresenceMenu open={openMenu} reduce={reduce} onClose={() => setOpenMenu(false)} onFree={onFree} />
+      <div style={{ display: 'flex', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
+        <Button size="lg" onClick={onStart} gpu style={{ flex: 1, borderRadius: 0, boxShadow: 'none' }}>
+          Commencer {label}
+        </Button>
+        <button
+          aria-haspopup="menu"
+          aria-expanded={openMenu}
+          aria-label="Autre séance"
+          onClick={() => setOpenMenu((v) => !v)}
+          style={{
+            width: 54,
+            border: 'none',
+            cursor: 'pointer',
+            background: 'var(--brand)',
+            color: 'var(--brand-ink)',
+            borderLeft: '1px solid color-mix(in oklch, black 18%, transparent)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <motion.span
+            animate={{ rotate: openMenu ? 90 : -90 }}
+            transition={{ duration: 0.18, ease: EASE.out }}
+            style={{ display: 'inline-flex' }}
+          >
+            <ChevronRight size={18} stroke={2.4} />
+          </motion.span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Menu « Séance libre » qui glisse au-dessus du bouton (depuis sa source).
+function AnimatePresenceMenu({
+  open,
+  reduce,
+  onClose,
+  onFree,
+}: {
+  open: boolean
+  reduce: boolean | null
+  onClose: () => void
+  onFree: () => void
+}) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          {/* scrim invisible : tap-dehors ferme le menu */}
+          <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1 }} />
+          <motion.div
+            role="menu"
+            initial={reduce ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.2, ease: EASE.out }}
+            style={{
+              position: 'absolute',
+              bottom: 'calc(100% + 10px)',
+              left: 0,
+              right: 0,
+              zIndex: 2,
+              background: 'var(--glass-strong)',
+              backdropFilter: 'blur(18px)',
+              WebkitBackdropFilter: 'blur(18px)',
+              boxShadow: '0 0 0 1px var(--hairline) inset, 0 -10px 40px -12px rgba(0,0,0,0.7)',
+              borderRadius: 16,
+              padding: 7,
+            }}
+          >
+            <button
+              role="menuitem"
+              onClick={() => {
+                onClose()
+                onFree()
+              }}
+              style={{
+                width: '100%',
+                appearance: 'none',
+                border: 'none',
+                background: 'transparent',
+                color: 'var(--ink)',
+                fontFamily: 'var(--font)',
+                fontWeight: 600,
+                fontSize: 14,
+                textAlign: 'left',
+                padding: '13px 12px',
+                borderRadius: 11,
+                cursor: 'pointer',
+              }}
+            >
+              Séance libre
+            </button>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   )
 }
 
