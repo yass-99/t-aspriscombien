@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>DA 3 — Le Terrain</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;700;800;900&family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ====== IDENTITÉ « LE TERRAIN » ======
+     Valeurs : jeu, inclusion, France populaire.
+     Ivoire chaud + cobalt franc + jaune soleil + menthe + bordures encre, ombres
+     décalées (maximalisme contrôlé FR 2025, pictos esprit DSFR). L'animateur de
+     quartier qui fédère l'étudiant, l'ouvrier et le cadre. */
+  :root {
+    --canvas:#FFFAF0; --surface:#FFFFFF; --surface-2:#FFF3D6;
+    --ink:#1E2243; --ink-2:#3D4263; --muted:#7B7F9E; --subtle:#A9ACC4;
+    --line:#1E2243; --line-soft:#EBE4D2;
+    --cobalt:#2F4BE0; --cobalt-soft:#E7EBFC;
+    --soleil:#FFC53D; --soleil-soft:#FFF3D6;
+    --menthe:#1FA97A; --menthe-soft:#E0F4EC;
+    --rose:#F4587A; --rose-soft:#FDE7EC;
+    --display:'Outfit',sans-serif; --font:'Inter',sans-serif; --mono:'JetBrains Mono',monospace;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-font-smoothing:antialiased; }
+  body { background:#F0E7D3; font-family:var(--font); color:var(--ink); display:flex; gap:48px; padding:48px; align-items:flex-start; }
+  .artboard { width:390px; height:844px; background:var(--canvas); border-radius:48px; overflow:hidden; position:relative; box-shadow:0 24px 60px rgba(30,34,67,.16); flex-shrink:0; display:flex; flex-direction:column; }
+  .ab-label { position:absolute; left:0; right:0; bottom:-34px; text-align:center; font-size:13px; font-weight:800; letter-spacing:2px; color:#9893B4; text-transform:uppercase; }
+  .wrap { position:relative; }
+  .status { display:flex; justify-content:space-between; align-items:center; padding:18px 28px 6px; font:600 14px var(--font); }
+  .scroll { flex:1; overflow:hidden; padding:0 20px; display:flex; flex-direction:column; }
+
+  .chip { display:inline-flex; align-items:center; gap:7px; background:var(--surface); border:2px solid var(--line); border-radius:999px; padding:6px 13px; font-size:12.5px; font-weight:700; color:var(--ink); width:fit-content; box-shadow:2px 2px 0 var(--line); }
+  .chip .dot { width:8px; height:8px; border-radius:99px; background:var(--cobalt); }
+
+  h1.hero { font:900 46px/0.98 var(--display); letter-spacing:-1.6px; margin:14px 0 4px; }
+  h1.hero .q { color:var(--cobalt); }
+  .hero-sub { font-size:14px; color:var(--muted); font-weight:600; margin-bottom:16px; }
+
+  .card { background:var(--surface); border:2px solid var(--line); border-radius:20px; padding:16px; box-shadow:3px 3px 0 var(--line); }
+  .card.flat { border-color:var(--line-soft); box-shadow:none; }
+  .card + .card { margin-top:13px; }
+  .card-label { font:800 11px var(--display); letter-spacing:1.4px; text-transform:uppercase; color:var(--muted); }
+  .row { display:flex; align-items:center; justify-content:space-between; }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+
+  .disc-label { display:flex; align-items:center; gap:6px; font:800 12px var(--display); }
+  .disc-label .d { width:9px; height:9px; border-radius:3px; }
+  .big-num { font:700 26px var(--mono); letter-spacing:-1px; }
+  .unit { font:500 12px var(--mono); color:var(--subtle); }
+  .sub-line { font-size:12px; color:var(--muted); font-weight:600; margin-top:3px; }
+
+  .bars { display:flex; align-items:flex-end; gap:8px; height:56px; margin-top:14px; }
+  .bars .b { flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; height:100%; justify-content:flex-end; }
+  .bars .v { width:100%; border-radius:6px 6px 3px 3px; }
+  .bars .d { font-size:10px; font-weight:800; color:var(--subtle); }
+
+  .btn { border-radius:16px; padding:15px; text-align:center; font:800 16px var(--display); cursor:pointer; }
+  .btn-primary { background:var(--cobalt); color:#fff; border:2px solid var(--line); box-shadow:3px 3px 0 var(--line); }
+  .btn-ghost { background:var(--surface); border:2px solid var(--line); color:var(--ink); box-shadow:3px 3px 0 var(--line); }
+  .cta-bar { padding:14px 20px 34px; background:linear-gradient(to top, var(--canvas) 70%, transparent); }
+
+  .stepper { display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:2px solid var(--line); border-radius:16px; padding:10px 12px; flex:1; box-shadow:3px 3px 0 var(--line); }
+  .step-btn { width:44px; height:44px; border-radius:12px; background:var(--cobalt-soft); display:flex; align-items:center; justify-content:center; color:var(--cobalt); }
+  .seg { display:flex; gap:7px; }
+  .seg .s { flex:1; text-align:center; padding:9px 0; border-radius:12px; font:800 12.5px var(--display); color:var(--muted); background:var(--surface); border:2px solid var(--line-soft); }
+  .seg .s.on { background:var(--soleil); color:var(--ink); border-color:var(--line); box-shadow:2px 2px 0 var(--line); }
+  .tag { display:inline-flex; align-items:center; gap:5px; padding:5px 11px; border-radius:99px; font-size:11.5px; font-weight:800; }
+  svg.ic { flex-shrink:0; }
+</style>
+</head>
+<body>
+
+<!-- =================== ÉCRAN 1 : ACCUEIL =================== -->
+<div class="wrap">
+<div class="artboard">
+  <div class="status">
+    <span>9:41</span>
+    <svg width="62" height="13" viewBox="0 0 62 13" fill="none"><rect x="0" y="3" width="3" height="10" rx="1" fill="#1E2243"/><rect x="5" y="1.5" width="3" height="11.5" rx="1" fill="#1E2243"/><rect x="10" y="0" width="3" height="13" rx="1" fill="#1E2243"/><path d="M22 4 a8 8 0 0 1 11 0 M24.5 7 a5 5 0 0 1 6 0 M27 10 l1.5 1.5 L30 10" stroke="#1E2243" stroke-width="1.6" fill="none" stroke-linecap="round"/><rect x="38" y="1" width="21" height="11" rx="3.5" stroke="#1E2243" stroke-width="1.2" fill="none"/><rect x="40" y="3" width="14" height="7" rx="2" fill="#1E2243"/><rect x="60" y="4.5" width="2" height="4" rx="1" fill="#1E2243"/></svg>
+  </div>
+  <div class="scroll" style="padding-top:10px;">
+    <div class="chip"><span class="dot"></span>Prévu aujourd'hui — Haut du corps</div>
+    <h1 class="hero">T'as pris<br>combien<span class="q"> ?</span></h1>
+    <div class="hero-sub">Mardi 4 juin · semaine 23</div>
+
+    <div class="card" style="display:flex; align-items:center; gap:13px; padding:13px 16px; background:var(--soleil-soft);">
+      <span style="width:42px;height:42px;border-radius:13px;background:var(--soleil);border:2px solid var(--line);display:flex;align-items:center;justify-content:center;">
+        <svg class="ic" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1E2243" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18l-1.5 14a2 2 0 0 1-2 1.8h-11A2 2 0 0 1 4.5 20Z"/><path d="M8 6a4 4 0 0 1 8 0"/><path d="M10.5 13.5 12 11l1.5 2.5"/></svg>
+      </span>
+      <div style="flex:1;">
+        <div style="font:800 14px var(--display);">Ta pesée de la semaine</div>
+        <div style="font-size:12px; color:var(--ink-2); font-weight:600;">30 secondes, et c'est réglé !</div>
+      </div>
+      <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E2243" stroke-width="2.6" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg>
+    </div>
+
+    <div class="card">
+      <div class="row" style="margin-bottom:13px;">
+        <span class="card-label">Ta semaine</span>
+        <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A9ACC4" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg>
+      </div>
+      <div style="display:flex; gap:14px;">
+        <div style="flex:1;">
+          <div class="disc-label" style="color:var(--menthe);"><span class="d" style="background:var(--menthe);"></span>Muscu</div>
+          <div style="display:flex; align-items:baseline; gap:4px; margin-top:7px;">
+            <span class="big-num">8 540</span><span class="unit">kg</span>
+          </div>
+          <div class="sub-line">3 séances · 42 séries</div>
+        </div>
+        <div style="width:2px; background:var(--line-soft); border-radius:2px;"></div>
+        <div style="flex:1;">
+          <div class="disc-label" style="color:var(--rose);"><span class="d" style="background:var(--rose);"></span>Athlé</div>
+          <div style="display:flex; align-items:baseline; gap:4px; margin-top:7px;">
+            <span class="big-num">12″84</span><span class="unit">100 m</span>
+          </div>
+          <div class="sub-line">4 chronos</div>
+        </div>
+      </div>
+      <div class="bars">
+        <div class="b"><span class="v" style="height:42%; background:var(--menthe);"></span><span class="d">L</span></div>
+        <div class="b"><span class="v" style="height:26%; background:var(--rose);"></span><span class="d">M</span></div>
+        <div class="b"><span class="v" style="height:5px; background:var(--line-soft);"></span><span class="d">M</span></div>
+        <div class="b"><span class="v" style="height:64%; background:var(--menthe);"></span><span class="d">J</span></div>
+        <div class="b"><span class="v" style="height:5px; background:var(--line-soft);"></span><span class="d">V</span></div>
+        <div class="b"><span class="v" style="height:5px; background:var(--line-soft);"></span><span class="d">S</span></div>
+        <div class="b"><span class="v" style="height:5px; background:var(--line-soft);"></span><span class="d">D</span></div>
+      </div>
+      <div class="tag" style="background:var(--menthe-soft); color:var(--menthe); margin-top:12px;">3/4 séances — encore une et la semaine est pleine !</div>
+    </div>
+
+    <div class="card flat" style="display:flex; align-items:center; gap:13px;">
+      <span style="width:42px;height:42px;border-radius:13px;background:var(--cobalt-soft);display:flex;align-items:center;justify-content:center;">
+        <svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2F4BE0" stroke-width="2" stroke-linecap="round"><path d="M6.5 6.5v11M17.5 6.5v11M3 9v6M21 9v6M6.5 12h11"/></svg>
+      </span>
+      <div style="flex:1;">
+        <div style="font:800 14px var(--display);">Pecs &amp; épaules</div>
+        <div style="font-size:12px; color:var(--muted); font-weight:600;">il y a 2 jours · <span class="mono">6 320 kg</span> · 5 exos</div>
+      </div>
+      <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A9ACC4" stroke-width="2.6" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg>
+    </div>
+
+    <div class="card flat" style="display:flex; align-items:center; gap:13px; padding:13px 16px;">
+      <svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3D4263" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+      <div style="flex:1; font:800 13.5px var(--display); color:var(--ink-2);">Ma semaine pour mon coach</div>
+      <span class="tag" style="background:var(--cobalt-soft); color:var(--cobalt);">prêt</span>
+    </div>
+    <div style="flex:1;"></div>
+  </div>
+  <div class="cta-bar">
+    <div class="btn btn-primary">C'est parti !</div>
+  </div>
+</div>
+<div class="ab-label">Accueil</div>
+</div>
+
+<!-- =================== ÉCRAN 2 : SÉANCE GUIDÉE =================== -->
+<div class="wrap">
+<div class="artboard">
+  <div class="status">
+    <span>9:41</span>
+    <svg width="62" height="13" viewBox="0 0 62 13" fill="none"><rect x="0" y="3" width="3" height="10" rx="1" fill="#1E2243"/><rect x="5" y="1.5" width="3" height="11.5" rx="1" fill="#1E2243"/><rect x="10" y="0" width="3" height="13" rx="1" fill="#1E2243"/><path d="M22 4 a8 8 0 0 1 11 0 M24.5 7 a5 5 0 0 1 6 0 M27 10 l1.5 1.5 L30 10" stroke="#1E2243" stroke-width="1.6" fill="none" stroke-linecap="round"/><rect x="38" y="1" width="21" height="11" rx="3.5" stroke="#1E2243" stroke-width="1.2" fill="none"/><rect x="40" y="3" width="14" height="7" rx="2" fill="#1E2243"/><rect x="60" y="4.5" width="2" height="4" rx="1" fill="#1E2243"/></svg>
+  </div>
+  <div class="scroll" style="padding-top:8px;">
+    <div class="row">
+      <div class="chip"><svg class="ic" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1E2243" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg><span class="mono">18:32</span></div>
+      <span class="tag" style="background:var(--cobalt); color:#fff;">Exo 2/6</span>
+    </div>
+
+    <div style="margin:16px 0 2px;" class="card-label">Haut du corps</div>
+    <h1 style="font:900 29px/1.02 var(--display); letter-spacing:-0.7px;">Développé couché</h1>
+    <div style="margin-top:6px; font-size:13px; color:var(--muted); font-weight:600;">La dernière fois : <span class="mono" style="color:var(--ink-2); font-weight:700;">3 × 8 à 60 kg</span></div>
+
+    <div class="card" style="margin-top:14px; background:var(--menthe-soft); display:flex; gap:11px; align-items:center; padding:13px 15px;">
+      <svg class="ic" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#1FA97A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 4 12.7c-.8.6-1 1.3-1 2.3h-6c0-1-.2-1.7-1-2.3A7 7 0 0 1 12 2Z"/><path d="M9.5 21h5"/></svg>
+      <div style="font-size:12.5px; font-weight:600; color:var(--ink-2); line-height:1.45;">Fini facile la dernière fois — tente <b class="mono">62 kg</b>, tu l'as !</div>
+    </div>
+
+    <div style="display:flex; gap:12px; margin-top:15px;">
+      <div class="stepper">
+        <span class="step-btn"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" fill="none"><path d="M5 12h14"/></svg></span>
+        <div style="text-align:center;">
+          <div class="mono" style="font-size:24px; font-weight:700;">62</div>
+          <div style="font:800 10px var(--display); color:var(--muted); letter-spacing:1.2px;">KG</div>
+        </div>
+        <span class="step-btn"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" fill="none"><path d="M12 5v14M5 12h14"/></svg></span>
+      </div>
+      <div class="stepper">
+        <span class="step-btn"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" fill="none"><path d="M5 12h14"/></svg></span>
+        <div style="text-align:center;">
+          <div class="mono" style="font-size:24px; font-weight:700;">8</div>
+          <div style="font:800 10px var(--display); color:var(--muted); letter-spacing:1.2px;">REPS</div>
+        </div>
+        <span class="step-btn"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" fill="none"><path d="M12 5v14M5 12h14"/></svg></span>
+      </div>
+    </div>
+
+    <div style="margin-top:15px;">
+      <div class="card-label" style="margin-bottom:7px;">En réserve</div>
+      <div class="seg"><span class="s">0</span><span class="s">1</span><span class="s on">2</span><span class="s">3</span></div>
+    </div>
+    <div style="margin-top:12px;">
+      <div class="card-label" style="margin-bottom:7px;">Amplitude</div>
+      <div class="seg"><span class="s on">Complète</span><span class="s">90°</span><span class="s">Partielle</span></div>
+    </div>
+
+    <div class="card flat" style="margin-top:15px; padding:6px 16px;">
+      <div class="row" style="padding:10px 0; border-bottom:2px solid var(--line-soft);">
+        <span style="font:800 12px var(--display); color:var(--muted);">Série 1</span>
+        <span class="mono" style="font-size:13.5px; font-weight:700;">60 kg × 8</span>
+        <span style="display:flex; align-items:center; gap:4px; color:var(--menthe); font-weight:800; font-size:12px;">
+          <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg>faite
+        </span>
+      </div>
+      <div class="row" style="padding:10px 0;">
+        <span style="font:800 12px var(--display);">Série 2</span>
+        <span class="mono" style="font-size:13.5px; font-weight:700; color:var(--muted);">en cours…</span>
+        <span style="width:48px;"></span>
+      </div>
+    </div>
+    <div style="flex:1;"></div>
+  </div>
+  <div class="cta-bar" style="display:flex; gap:10px;">
+    <div class="btn btn-ghost" style="flex:1; display:flex; align-items:center; justify-content:center; gap:7px;">
+      <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg>
+      <span class="mono" style="font-weight:700;">1:30</span>
+    </div>
+    <div class="btn btn-primary" style="flex:2;">Série faite !</div>
+  </div>
+</div>
+<div class="ab-label">Séance guidée</div>
+</div>
+
+<!-- =================== ÉCRAN 3 : STATS =================== -->
+<div class="wrap">
+<div class="artboard">
+  <div class="status">
+    <span>9:41</span>
+    <svg width="62" height="13" viewBox="0 0 62 13" fill="none"><rect x="0" y="3" width="3" height="10" rx="1" fill="#1E2243"/><rect x="5" y="1.5" width="3" height="11.5" rx="1" fill="#1E2243"/><rect x="10" y="0" width="3" height="13" rx="1" fill="#1E2243"/><path d="M22 4 a8 8 0 0 1 11 0 M24.5 7 a5 5 0 0 1 6 0 M27 10 l1.5 1.5 L30 10" stroke="#1E2243" stroke-width="1.6" fill="none" stroke-linecap="round"/><rect x="38" y="1" width="21" height="11" rx="3.5" stroke="#1E2243" stroke-width="1.2" fill="none"/><rect x="40" y="3" width="14" height="7" rx="2" fill="#1E2243"/><rect x="60" y="4.5" width="2" height="4" rx="1" fill="#1E2243"/></svg>
+  </div>
+  <div class="scroll" style="padding-top:8px;">
+    <h1 style="font:900 30px/1 var(--display); letter-spacing:-0.8px; margin:8px 0 14px;">Tes progrès</h1>
+
+    <div class="seg" style="margin-bottom:10px;">
+      <span class="s on">Muscu</span>
+      <span class="s">Athlé</span>
+      <span class="s">Global</span>
+    </div>
+    <div class="seg" style="margin-bottom:15px;">
+      <span class="s" style="border:none; background:transparent;">7 j</span>
+      <span class="s" style="background:var(--surface); border-color:var(--line);">30 j</span>
+      <span class="s" style="border:none; background:transparent;">90 j</span>
+      <span class="s" style="border:none; background:transparent;">Tout</span>
+    </div>
+
+    <div class="card">
+      <span class="card-label">Volume soulevé</span>
+      <div style="display:flex; align-items:baseline; gap:8px; margin-top:8px;">
+        <span class="mono" style="font-size:42px; font-weight:700; letter-spacing:-2px; color:var(--menthe);">+18 %</span>
+      </div>
+      <div style="font-size:14px; font-weight:600; color:var(--ink-2); margin-top:2px;">Tu pousses plus lourd qu'il y a un mois.</div>
+      <svg width="100%" height="74" viewBox="0 0 318 74" style="margin-top:12px;" preserveAspectRatio="none">
+        <defs><linearGradient id="g3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1FA97A" stop-opacity=".2"/><stop offset="1" stop-color="#1FA97A" stop-opacity="0"/></linearGradient></defs>
+        <path d="M0 60 C 30 58, 48 50, 80 52 S 140 38, 170 36 S 240 26, 270 18 S 305 10, 318 8 L318 74 L0 74 Z" fill="url(#g3)"/>
+        <path d="M0 60 C 30 58, 48 50, 80 52 S 140 38, 170 36 S 240 26, 270 18 S 305 10, 318 8" fill="none" stroke="#1FA97A" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="318" cy="8" r="4.5" fill="#1FA97A" stroke="#fff" stroke-width="2"/>
+      </svg>
+    </div>
+
+    <div style="display:flex; gap:12px; margin-top:13px;">
+      <div class="card" style="flex:1; padding:14px; background:var(--menthe-soft);">
+        <span class="card-label" style="color:var(--menthe);">Record DC</span>
+        <div class="mono" style="font-size:22px; font-weight:700; margin-top:5px;">80 <span style="font-size:12px; color:var(--muted);">kg</span></div>
+        <span class="tag" style="background:#fff; color:var(--menthe); margin-top:7px;">
+          <svg class="ic" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>+5 kg ce mois
+        </span>
+      </div>
+      <div class="card" style="flex:1; padding:14px; background:var(--rose-soft);">
+        <span class="card-label" style="color:var(--rose);">100 m</span>
+        <div class="mono" style="font-size:22px; font-weight:700; margin-top:5px;">12″84</div>
+        <span class="tag" style="background:#fff; color:var(--rose); margin-top:7px;">record − 0″3</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:13px; background:var(--cobalt); color:#fff;">
+      <div class="row">
+        <span class="card-label" style="color:#B9C4F4;">Athlète complet</span>
+        <span class="tag" style="background:var(--soleil); color:var(--ink); border:2px solid var(--line);">78/100</span>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:13px; align-items:center;">
+        <span style="font:800 12px var(--display); width:54px;">Force</span>
+        <div style="flex:1; height:10px; border-radius:99px; background:rgba(255,255,255,.22); overflow:hidden;"><div style="width:72%; height:100%; background:#fff; border-radius:99px;"></div></div>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+        <span style="font:800 12px var(--display); width:54px;">Vitesse</span>
+        <div style="flex:1; height:10px; border-radius:99px; background:rgba(255,255,255,.22); overflow:hidden;"><div style="width:64%; height:100%; background:var(--soleil); border-radius:99px;"></div></div>
+      </div>
+      <div style="font-size:12px; color:#CBD4F7; font-weight:600; margin-top:11px;">Fort et rapide — tu joues sur les deux tableaux.</div>
+    </div>
+    <div style="flex:1;"></div>
+  </div>
+  <div class="cta-bar">
+    <div class="btn btn-ghost" style="display:flex; align-items:center; justify-content:center; gap:8px;">
+      <svg class="ic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+      Mon bilan pour mon coach
+    </div>
+  </div>
+</div>
+<div class="ab-label">Stats</div>
+</div>
+
+</body>
+</html>
