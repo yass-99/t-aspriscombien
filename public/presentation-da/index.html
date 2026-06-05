@@ -3,354 +3,126 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>5 identités — La nouvelle génération d'athlètes complets</title>
+<title>5 identités — Athlètes complets</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Space+Grotesk:wght@700&display=swap" rel="stylesheet">
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  html,body { height:100%; background:#101014; font-family:'Inter',sans-serif; color:#1a1a1f; overflow:hidden; }
-  .slide { position:absolute; inset:0; display:none; flex-direction:column; padding:44px 60px; overflow:hidden; }
-  .slide.active { display:flex; }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-font-smoothing:antialiased; }
+  body { background:#101014; color:#FAFAFA; font-family:'Inter',sans-serif; }
+  .page { max-width:520px; margin:0 auto; padding:32px 18px 60px; }
 
-  .progress { position:fixed; bottom:0; left:0; height:4px; background:#E2502A; z-index:50; transition:width .3s; }
-  .nav-hint { position:fixed; bottom:14px; right:20px; color:rgba(255,255,255,.4); font-size:12px; z-index:50; }
-  .slide-num { position:fixed; bottom:14px; left:20px; color:rgba(128,128,128,.55); font-size:12px; z-index:50; }
+  header { margin-bottom:30px; }
+  .kicker { font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#FF8A65; margin-bottom:10px; }
+  h1 { font-family:'Space Grotesk'; font-size:30px; line-height:1.08; letter-spacing:-1px; }
+  h1 span { color:#FF8A65; }
+  .intro { font-size:14px; color:rgba(255,255,255,.62); line-height:1.55; margin-top:12px; }
 
-  .dark { background:#101014; color:#FAFAFA; }
-  .kicker { font-size:13px; font-weight:700; letter-spacing:2.5px; text-transform:uppercase; margin-bottom:16px; color:#E2502A; }
-  .dark .kicker { color:#FF8A65; }
-  h1 { font-family:'Space Grotesk'; font-size:62px; line-height:1.02; letter-spacing:-2px; font-weight:700; }
-  h2 { font-family:'Space Grotesk'; font-size:36px; letter-spacing:-1px; font-weight:700; margin-bottom:22px; }
-  .sub { font-size:19px; color:rgba(255,255,255,.65); margin-top:22px; max-width:780px; line-height:1.55; }
+  .pillars { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:18px; }
+  .pillar { background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); border-radius:13px; padding:11px 13px; font-size:12px; font-weight:700; }
+  .pillar small { display:block; font-weight:400; color:rgba(255,255,255,.55); margin-top:3px; font-size:11px; line-height:1.4; }
 
-  .pillars { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-top:36px; }
-  .pillar { background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); border-radius:18px; padding:22px; }
-  .pillar h3 { font-size:17px; margin-bottom:8px; color:#fff; display:flex; align-items:center; gap:9px; }
-  .pillar p { font-size:13.5px; color:rgba(255,255,255,.6); line-height:1.5; }
-  .pillar svg { flex-shrink:0; }
+  .ident { margin-top:44px; }
+  .ident .num { font-size:11px; font-weight:800; letter-spacing:2px; text-transform:uppercase; color:rgba(255,255,255,.4); }
+  .ident h2 { font-family:'Space Grotesk'; font-size:26px; letter-spacing:-.5px; margin:4px 0 8px; }
+  .vals { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:9px; }
+  .val { padding:4px 11px; border-radius:999px; font-size:11px; font-weight:800; background:rgba(255,255,255,.09); }
+  .pitch { font-size:13.5px; line-height:1.55; color:rgba(255,255,255,.68); margin-bottom:16px; }
+  .pitch b { color:#fff; }
 
-  .cols3 { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-top:6px; }
-  .factcard { background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); border-radius:18px; padding:24px; }
-  .factcard .big { font-family:'Space Grotesk'; font-size:38px; font-weight:700; color:#FF8A65; margin-bottom:6px; }
-  .factcard h3 { font-size:16px; color:#fff; margin-bottom:9px; }
-  .factcard p { font-size:13.5px; color:rgba(255,255,255,.62); line-height:1.5; }
-  .factcard .src { display:block; margin-top:11px; font-size:11px; color:rgba(255,255,255,.34); }
+  .shots { display:flex; flex-direction:column; gap:14px; }
+  .shots img { width:100%; height:auto; border-radius:26px; display:block; box-shadow:0 10px 36px rgba(0,0,0,.5); }
+  .shot-label { font-size:10.5px; font-weight:800; letter-spacing:1.6px; text-transform:uppercase; color:rgba(255,255,255,.4); margin:2px 0 -6px 4px; }
 
-  table.cmp { width:100%; border-collapse:collapse; margin-top:4px; font-size:14px; }
-  table.cmp th { text-align:left; padding:11px 13px; color:#FF8A65; font-size:12px; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid rgba(255,255,255,.15); }
-  table.cmp td { padding:11px 13px; border-bottom:1px solid rgba(255,255,255,.08); color:rgba(255,255,255,.82); vertical-align:top; line-height:1.42; }
-  table.cmp td:first-child { font-weight:700; color:#fff; white-space:nowrap; }
-
-  .tok { display:inline-block; width:14px; height:14px; border-radius:4px; vertical-align:-2px; margin-right:5px; border:1px solid rgba(255,255,255,.2); }
-  .mono { font-family:'JetBrains Mono',monospace; }
-
-  /* slides identité : panneau gauche + iframe écrans */
-  .ident { flex-direction:row !important; gap:36px; align-items:stretch; }
-  .ident .left { width:340px; flex-shrink:0; display:flex; flex-direction:column; padding-top:8px; }
-  .ident .num { font-size:12px; font-weight:800; letter-spacing:2px; text-transform:uppercase; opacity:.55; margin-bottom:8px; }
-  .ident h2 { font-size:40px; margin-bottom:10px; }
-  .ident .vals { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
-  .ident .val { padding:5px 12px; border-radius:999px; font-size:12px; font-weight:800; }
-  .ident .pitch { font-size:14.5px; line-height:1.55; opacity:.8; margin-bottom:18px; }
-  .ident .swatches { display:flex; gap:7px; margin-bottom:24px; flex-wrap:wrap; }
-  .ident .sw { width:42px; height:42px; border-radius:11px; border:1px solid rgba(0,0,0,.12); position:relative; }
-  .ident .sw span { position:absolute; bottom:-17px; left:0; font-size:9px; opacity:.6; white-space:nowrap; font-weight:700; }
-  .ident .props { font-size:13px; line-height:1.75; opacity:.85; }
-  .ident .props b { display:inline-block; min-width:90px; }
-  .frame { flex:1; position:relative; border-radius:24px; overflow:hidden; }
-  .frame iframe { position:absolute; top:50%; left:50%; width:1380px; height:944px; border:0; transform:translate(-50%,-50%) scale(var(--sc,0.62)); }
-
-  .lightslide { background:#F6F3EE; color:#211D18; }
-  table.fin { width:100%; border-collapse:collapse; font-size:14px; margin-top:4px; }
-  table.fin th { text-align:left; padding:10px 12px; font-size:11.5px; text-transform:uppercase; letter-spacing:1px; color:#8a857d; border-bottom:2px solid #e3ded6; }
-  table.fin td { padding:11px 12px; border-bottom:1px solid #e9e4dc; vertical-align:top; line-height:1.45; }
-  table.fin td:first-child { font-weight:800; white-space:nowrap; }
-  .pillbadge { display:inline-block; padding:3px 10px; border-radius:999px; font-size:11px; font-weight:700; }
+  .sep { height:1px; background:rgba(255,255,255,.1); margin-top:44px; }
+  footer { margin-top:32px; font-size:12px; color:rgba(255,255,255,.4); line-height:1.6; }
 </style>
 </head>
 <body>
+<div class="page">
 
-<!-- ===== 1 · TITRE ===== -->
-<section class="slide dark active">
-  <div style="flex:1; display:flex; flex-direction:column; justify-content:center;">
-    <div class="kicker">t'as pris combien — identité de marque · 05/06/2026</div>
-    <h1>La nouvelle génération<br>d'<span style="color:#FF8A65;">athlètes complets</span></h1>
-    <p class="sub">L'app française et chaleureuse qui vit dans les salles de muscu, couvre l'athlé,
-    et <b style="color:#fff;">guide vraiment la séance</b>.<br>
-    5 identités de marque complètes — valeurs, personnalité, langage visuel — maquettées sur les vrais écrans du prototype.</p>
-  </div>
-</section>
+  <header>
+    <div class="kicker">t'as pris combien · 05/06/2026</div>
+    <h1>La nouvelle génération d'<span>athlètes complets</span></h1>
+    <p class="intro">L'app française et chaleureuse qui vit dans les salles de muscu, couvre l'athlé, et guide vraiment la séance. 5 identités de marque, maquettées sur les vrais écrans.</p>
+    <div class="pillars">
+      <div class="pillar">🇫🇷 France d'abord<small>Marché FR, UI française, zéro cliché</small></div>
+      <div class="pillar">🏋️ Ancré dans les salles<small>Pilotes boxes IDF → franchisés → sièges</small></div>
+      <div class="pillar">⚡ Athlète complet<small>Muscu + athlé = LE positionnement</small></div>
+      <div class="pillar">🧭 Guidage actif<small>L'app assiste pendant la séance</small></div>
+    </div>
+  </header>
 
-<!-- ===== 2 · LA DÉCISION ===== -->
-<section class="slide dark">
-  <div class="kicker">Nos objectifs &amp; nos valeurs</div>
-  <h2>Ce qu'on a tranché</h2>
-  <div class="pillars">
-    <div class="pillar">
-      <h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF8A65" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18M3.5 9h17M3.5 15h17"/></svg>France d'abord</h3>
-      <p>Reconquérir le marché français avant de penser global. UI 100 % française, codes culturels français, zéro cliché tricolore.</p>
-    </div>
-    <div class="pillar">
-      <h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF8A65" stroke-width="2" stroke-linecap="round"><path d="M6.5 6.5v11M17.5 6.5v11M3 9v6M21 9v6M6.5 12h11"/></svg>Ancré dans les salles</h3>
-      <p>L'app se vit à Basic-Fit, Fitness Park, dans les boxes. Pilotes terrain : boxes CrossFit/Hyrox IDF, puis franchisés, puis sièges.</p>
-    </div>
-    <div class="pillar">
-      <h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF8A65" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 4 14h6l-1 7 9-11h-6l1-7Z"/></svg>Athlète complet</h3>
-      <p>Muscu + athlé dans une seule app : la double discipline devient LE positionnement, plus une bizarrerie de niche.</p>
-    </div>
-    <div class="pillar">
-      <h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF8A65" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>Guidage actif</h3>
-      <p>L'app assiste pendant la séance — conseils de charge, repos, enchaînements. C'est l'ADN du prototype, et notre différenciateur.</p>
-    </div>
-  </div>
-  <p class="sub" style="margin-top:32px;"><b style="color:#FF8A65;">Contrainte transverse : chaleureux.</b>
-  Chaque identité ci-après est une marque complète — pas un skin : des valeurs, une personnalité, un langage visuel propre.</p>
-</section>
-
-<!-- ===== 3 · PREUVES MARCHÉ ===== -->
-<section class="slide dark">
-  <div class="kicker">Ce que disent les 8 études</div>
-  <h2>Le créneau existe, et il est ouvert</h2>
-  <div class="cols3">
-    <div class="factcard">
-      <div class="big">×10</div>
-      <h3>L'hybride explose</h3>
-      <p>Hyrox : vers <b>1 M de participations/an</b> d'ici 2026, +1081 % en 5 ans, 70 % de first-timers, l'Europe en tête. <b>Aucune app dominante</b> ne fait du suivi unifié force + course : l'espace est ouvert.</p>
-      <span class="src">Infront · BBC · r/HybridAthlete</span>
-    </div>
-    <div class="factcard">
-      <div class="big">875</div>
-      <h3>Les salles françaises, canal vide</h3>
-      <p>Basic-Fit : 875 clubs FR. Les apps maison = badge + résa, <b>pas des carnets d'entraînement</b>. Les pratiquants sérieux utilisent déjà Hevy en parallèle. ~430 boxes CrossFit = terrain le plus ouvert.</p>
-      <span class="src">Stores · Franchise Mag · Resamania</span>
-    </div>
-    <div class="factcard">
-      <div class="big">57 %</div>
-      <h3>Les Français veulent du chaleureux</h3>
-      <p>Motivation n°1 : la santé (57 %), puis se sentir bien (48 %). Le full-dark néon = code « premium excluant ». Le modèle gagnant : <b>Decathlon / Leboncoin</b> — qualitatif ET populaire.</p>
-      <span class="src">Ipsos/FFEPGV 2025 · Ifop/Allianz</span>
-    </div>
-  </div>
-</section>
-
-<!-- ===== 4 · MÉTHODE DA ===== -->
-<section class="slide dark">
-  <div class="kicker">La méthode</div>
-  <h2>Des identités fondées, pas des skins</h2>
-  <table class="cmp">
-    <tr><th>Ce qu'on a extrait (inspection CSS des sites officiels + design systems publics)</th><th>Ce que ça nous apprend</th></tr>
-    <tr>
-      <td><span class="tok" style="background:#E8D6BF;"></span>Basic-Fit : fond <span class="mono">beige chaud</span> + <span class="tok" style="background:#592BB2;"></span>violet + <span class="tok" style="background:#FE7000;"></span>orange</td>
-      <td>La plus grosse chaîne de France est déjà chaleureuse — et violette. Chaleur ≠ mollesse.</td>
-    </tr>
-    <tr>
-      <td><span class="tok" style="background:#58CC02;"></span>Duolingo (DS public) : Feather Green, boutons 3D, mascotte aux formes rondes, « juicy design »</td>
-      <td>La gamification chaleureuse est un système complet documenté — pas juste une mascotte posée là.</td>
-    </tr>
-    <tr>
-      <td><span class="tok" style="background:#3643BA;"></span>Decathlon « Vitamin » : cobalt 2024 + mint, typo custom · <span class="tok" style="background:#EC5A13;"></span>Leboncoin : orange + Nunito Sans</td>
-      <td>Le « goût français » populaire-qualitatif : couleurs franches sur fonds clairs, typos rondes lisibles.</td>
-    </tr>
-    <tr>
-      <td><span class="tok" style="background:#FC5200;"></span>Strava : dark = une <i>option</i>, jamais l'identité · Hevy : logger n°1 = clair et sobre</td>
-      <td>Pattern validé : écrans de vie clairs, sombre réservé au focus (séance) — jamais comme code de marque.</td>
-    </tr>
-  </table>
-  <p class="sub" style="font-size:16px; margin-top:24px;">Chaque identité réutilise la <b style="color:#fff;">vraie structure du prototype</b> :
-  hero « T'as pris combien ? », carte semaine muscu/athlé, séance guidée (charge, reps, réserve, amplitude, repos), stats « clarté en 1 seconde », bilan coach.</p>
-</section>
-
-<!-- ===== 5 · IDENTITÉ 1 : LE CLUB ===== -->
-<section class="slide ident" style="background:#FAF3EA; color:#28201A;">
-  <div class="left">
+  <!-- 1 · LE CLUB -->
+  <section class="ident">
     <div class="num">Identité 1 / 5</div>
-    <h2 style="font-family:'Space Grotesk';">Le Club</h2>
-    <div class="vals">
-      <span class="val" style="background:#FBE5DC; color:#C9431F;">Accueil</span>
-      <span class="val" style="background:#E7F1E9; color:#2E6840;">Régularité</span>
-      <span class="val" style="background:#F4EADD; color:#6B5B49;">Fierté simple</span>
+    <h2>Le Club</h2>
+    <div class="vals"><span class="val" style="color:#FFAB91;">Accueil</span><span class="val" style="color:#A5D6A7;">Régularité</span><span class="val">Fierté simple</span></div>
+    <p class="pitch"><b>Le pote de salle fiable qui te connaît.</b> Crème + brique, typo ronde française (Bricolage Grotesque). La chaleur Decathlon/Leboncoin appliquée à la muscu.</p>
+    <div class="shots">
+      <div class="shot-label">Accueil</div><img src="img/img-01-accueil.png" alt="Le Club — accueil" loading="lazy">
+      <div class="shot-label">Séance guidée</div><img src="img/img-01-seance.png" alt="Le Club — séance guidée" loading="lazy">
+      <div class="shot-label">Stats</div><img src="img/img-01-stats.png" alt="Le Club — stats" loading="lazy">
     </div>
-    <p class="pitch"><b>Le pote de salle fiable qui te connaît.</b> Le club de quartier digital : on s'y sent accueilli avant de s'y sentir performant. La chaleur Decathlon/Leboncoin appliquée à la muscu.</p>
-    <div class="swatches">
-      <div class="sw" style="background:#FAF3EA;"><span>crème</span></div>
-      <div class="sw" style="background:#E2502A;"><span>brique</span></div>
-      <div class="sw" style="background:#3F8455;"><span>muscu</span></div>
-      <div class="sw" style="background:#D98324;"><span>athlé</span></div>
-      <div class="sw" style="background:#28201A;"><span>encre</span></div>
-    </div>
-    <div class="props">
-      <div><b>Typo</b> Bricolage Grotesque (designer FR) + Nunito Sans</div>
-      <div><b>Formes</b> très rondes, ombres douces</div>
-      <div><b>Ton</b> « 30 secondes, promis »</div>
-      <div><b>Risque</b> sage — différenciation moyenne</div>
-    </div>
-  </div>
-  <div class="frame" style="--sc:0.60;"><iframe src="screens/01-le-club.html" loading="lazy"></iframe></div>
-</section>
+  </section>
 
-<!-- ===== 6 · IDENTITÉ 2 : LA SALLE ===== -->
-<section class="slide ident" style="background:#F2EDE3; color:#1C1913;">
-  <div class="left">
+  <!-- 2 · LA SALLE -->
+  <section class="ident">
     <div class="num">Identité 2 / 5</div>
-    <h2 style="font-family:'Space Grotesk';">La Salle</h2>
-    <div class="vals">
-      <span class="val" style="background:#EDF3D3; color:#5E7F06;">Effort</span>
-      <span class="val" style="background:#E9E2D4; color:#5C5340;">Terrain</span>
-      <span class="val" style="background:#FBEAD8; color:#A6500F;">Authenticité</span>
+    <h2>La Salle</h2>
+    <div class="vals"><span class="val" style="color:#DCE775;">Effort</span><span class="val">Terrain</span><span class="val" style="color:#FFB74D;">Authenticité</span></div>
+    <p class="pitch"><b>Le coach direct, exigeant mais chaleureux.</b> Grège chaud + charbon + le lime hérité du prototype. L'énergie d'une salle à 18 h, sans froideur.</p>
+    <div class="shots">
+      <div class="shot-label">Accueil</div><img src="img/img-02-accueil.png" alt="La Salle — accueil" loading="lazy">
+      <div class="shot-label">Séance guidée</div><img src="img/img-02-seance.png" alt="La Salle — séance guidée" loading="lazy">
+      <div class="shot-label">Stats</div><img src="img/img-02-stats.png" alt="La Salle — stats" loading="lazy">
     </div>
-    <p class="pitch"><b>Le coach direct, exigeant mais chaleureux.</b> L'énergie d'une salle à 18 h : craie, fonte, lumière. Le lime du prototype survit, posé sur du grège chaud — sport sans froideur.</p>
-    <div class="swatches">
-      <div class="sw" style="background:#F2EDE3;"><span>grège</span></div>
-      <div class="sw" style="background:#1C1913;"><span>charbon</span></div>
-      <div class="sw" style="background:#D7F232;"><span>lime hérité</span></div>
-      <div class="sw" style="background:#8AB80E;"><span>muscu</span></div>
-      <div class="sw" style="background:#EE7117;"><span>athlé</span></div>
-    </div>
-    <div class="props">
-      <div><b>Typo</b> Archivo (caps athlétiques) + Inter</div>
-      <div><b>Formes</b> pilules nettes, contrastes francs</div>
-      <div><b>Ton</b> « Charge 62 kg. On y va. »</div>
-      <div><b>Risque</b> peut rester « perf » si mal dosée</div>
-    </div>
-  </div>
-  <div class="frame" style="--sc:0.60;"><iframe src="screens/02-la-salle.html" loading="lazy"></iframe></div>
-</section>
+  </section>
 
-<!-- ===== 7 · IDENTITÉ 3 : LE TERRAIN ===== -->
-<section class="slide ident" style="background:#FFFAF0; color:#1E2243;">
-  <div class="left">
+  <!-- 3 · LE TERRAIN -->
+  <section class="ident">
     <div class="num">Identité 3 / 5</div>
-    <h2 style="font-family:'Space Grotesk';">Le Terrain</h2>
-    <div class="vals">
-      <span class="val" style="background:#E7EBFC; color:#2F4BE0;">Jeu</span>
-      <span class="val" style="background:#E0F4EC; color:#157A57;">Inclusion</span>
-      <span class="val" style="background:#FFF3D6; color:#9C7508;">France populaire</span>
+    <h2>Le Terrain</h2>
+    <div class="vals"><span class="val" style="color:#90A7F8;">Jeu</span><span class="val" style="color:#80CBC4;">Inclusion</span><span class="val" style="color:#FFE082;">France populaire</span></div>
+    <p class="pitch"><b>L'animateur de quartier qui fédère tout le monde.</b> Cobalt, soleil, menthe, bordures marquées, ombres décalées. L'étudiant, l'ouvrier et le cadre au même endroit.</p>
+    <div class="shots">
+      <div class="shot-label">Accueil</div><img src="img/img-03-accueil.png" alt="Le Terrain — accueil" loading="lazy">
+      <div class="shot-label">Séance guidée</div><img src="img/img-03-seance.png" alt="Le Terrain — séance guidée" loading="lazy">
+      <div class="shot-label">Stats</div><img src="img/img-03-stats.png" alt="Le Terrain — stats" loading="lazy">
     </div>
-    <p class="pitch"><b>L'animateur de quartier qui fédère tout le monde.</b> Maximalisme contrôlé à la française : couleurs franches, bordures marquées, ombres décalées. L'étudiant, l'ouvrier et le cadre au même endroit.</p>
-    <div class="swatches">
-      <div class="sw" style="background:#FFFAF0;"><span>ivoire</span></div>
-      <div class="sw" style="background:#2F4BE0;"><span>cobalt</span></div>
-      <div class="sw" style="background:#FFC53D;"><span>soleil</span></div>
-      <div class="sw" style="background:#1FA97A;"><span>muscu</span></div>
-      <div class="sw" style="background:#F4587A;"><span>athlé</span></div>
-    </div>
-    <div class="props">
-      <div><b>Typo</b> Outfit (géométrique joyeuse) + Inter</div>
-      <div><b>Formes</b> bordures 2 px, ombres 3×3, stickers</div>
-      <div><b>Ton</b> « Encore une et la semaine est pleine ! »</div>
-      <div><b>Risque</b> sérieux/lisibilité à doser</div>
-    </div>
-  </div>
-  <div class="frame" style="--sc:0.60;"><iframe src="screens/03-le-terrain.html" loading="lazy"></iframe></div>
-</section>
+  </section>
 
-<!-- ===== 8 · IDENTITÉ 4 : JOUR & NUIT ===== -->
-<section class="slide ident" style="background:#FAF8FF; color:#241B38;">
-  <div class="left">
+  <!-- 4 · JOUR & NUIT -->
+  <section class="ident">
     <div class="num">Identité 4 / 5</div>
-    <h2 style="font-family:'Space Grotesk';">Jour &amp; Nuit</h2>
-    <div class="vals">
-      <span class="val" style="background:#F0E8FE; color:#6D28D9;">Focus</span>
-      <span class="val" style="background:#EFF5E1; color:#4D7A0A;">Maturité</span>
-      <span class="val" style="background:#F1ECFB; color:#5A4B78;">Continuité</span>
+    <h2>Jour &amp; Nuit</h2>
+    <div class="vals"><span class="val" style="color:#CE93D8;">Focus</span><span class="val" style="color:#C5E1A5;">Maturité</span><span class="val">Continuité</span></div>
+    <p class="pitch"><b>L'entraîneur calme qui respecte ton effort.</b> L'évolution du prototype : écrans de vie clairs et chauds, séance en mode nuit focus. Violet et lime survivent. Coût de transition le plus faible.</p>
+    <div class="shots">
+      <div class="shot-label">Accueil — jour</div><img src="img/img-04-accueil.png" alt="Jour et Nuit — accueil jour" loading="lazy">
+      <div class="shot-label">Séance — nuit focus</div><img src="img/img-04-seance.png" alt="Jour et Nuit — séance nuit" loading="lazy">
+      <div class="shot-label">Stats — jour</div><img src="img/img-04-stats.png" alt="Jour et Nuit — stats jour" loading="lazy">
     </div>
-    <p class="pitch"><b>L'entraîneur calme qui respecte ton effort.</b> L'évolution du prototype : les écrans de vie passent en clair lavande chaud, la séance garde la nuit (focus). Violet, lime et typos survivent.</p>
-    <div class="swatches">
-      <div class="sw" style="background:#FAF8FF;"><span>jour</span></div>
-      <div class="sw" style="background:#7C3AED;"><span>violet hérité</span></div>
-      <div class="sw" style="background:#65A30D;"><span>muscu</span></div>
-      <div class="sw" style="background:#E08700;"><span>athlé</span></div>
-      <div class="sw" style="background:#0F0A1A;"><span>nuit (séance)</span></div>
-    </div>
-    <div class="props">
-      <div><b>Typo</b> Space Grotesk + Inter (héritées)</div>
-      <div><b>Formes</b> pilules actuelles, glass réservé à la nuit</div>
-      <div><b>Ton</b> actuel, réchauffé</div>
-      <div><b>Atout</b> coût de transition le plus faible</div>
-    </div>
-  </div>
-  <div class="frame" style="--sc:0.60;"><iframe src="screens/04-jour-nuit.html" loading="lazy"></iframe></div>
-</section>
+  </section>
 
-<!-- ===== 9 · IDENTITÉ 5 : LE COMPAGNON ===== -->
-<section class="slide ident" style="background:#FDFEFB; color:#35414B;">
-  <div class="left">
+  <!-- 5 · LE COMPAGNON -->
+  <section class="ident">
     <div class="num">Identité 5 / 5</div>
-    <h2 style="font-family:'Space Grotesk';">Le Compagnon</h2>
-    <div class="vals">
-      <span class="val" style="background:#EAF7E2; color:#3D9414;">Encouragement</span>
-      <span class="val" style="background:#FFF2DC; color:#E08200;">Constance</span>
-      <span class="val" style="background:#E4F4FC; color:#1E86B8;">Joie</span>
-    </div>
+    <h2>Le Compagnon</h2>
+    <div class="vals"><span class="val" style="color:#A5D6A7;">Encouragement</span><span class="val" style="color:#FFCC80;">Constance</span><span class="val" style="color:#81D4FA;">Joie</span></div>
     <p class="pitch"><b>« Gus », la mascotte qui croit en toi.</b> Le guidage devient un personnage : il accueille, conseille la charge, célèbre les records. Boutons 3D, chemin de progression, streak — la rétention Duolingo, avec notre mascotte à nous.</p>
-    <div class="swatches">
-      <div class="sw" style="background:#FDFEFB;"><span>fond</span></div>
-      <div class="sw" style="background:#4FB81F;"><span>pré</span></div>
-      <div class="sw" style="background:#27A4E0;"><span>ciel</span></div>
-      <div class="sw" style="background:#FFA216;"><span>flamme</span></div>
-      <div class="sw" style="background:#35414B;"><span>encre</span></div>
+    <div class="shots">
+      <div class="shot-label">Accueil</div><img src="img/img-05-accueil.png" alt="Le Compagnon — accueil" loading="lazy">
+      <div class="shot-label">Séance guidée</div><img src="img/img-05-seance.png" alt="Le Compagnon — séance guidée" loading="lazy">
+      <div class="shot-label">Stats</div><img src="img/img-05-stats.png" alt="Le Compagnon — stats" loading="lazy">
     </div>
-    <div class="props">
-      <div><b>Typo</b> Baloo 2 (ronde joueuse) + Nunito Sans</div>
-      <div><b>Formes</b> boutons 3D à ombre dure, bulles</div>
-      <div><b>Ton</b> « Tente 62 kg — je crois en toi ! »</div>
-      <div><b>Risque</b> production d'assets ; infantilisme à éviter</div>
-    </div>
-  </div>
-  <div class="frame" style="--sc:0.60;"><iframe src="screens/05-le-compagnon.html" loading="lazy"></iframe></div>
-</section>
+  </section>
 
-<!-- ===== 10 · COMPARATIF ===== -->
-<section class="slide lightslide">
-  <div class="kicker">Synthèse</div>
-  <h2>Comparer les 5 identités</h2>
-  <table class="fin">
-    <tr><th>Identité</th><th>Personnalité</th><th>Fit « chaleureux FR »</th><th>Différenciation vs Hevy / Strava</th><th>Coût de transition</th><th>Risque principal</th></tr>
-    <tr><td>1 · Le Club</td><td>Le pote de salle fiable</td><td><span class="pillbadge" style="background:#DDF0E2;color:#247A43;">Excellent</span></td><td>Moyenne — chaleureuse mais sage</td><td>Moyen</td><td>Peu mémorable</td></tr>
-    <tr><td>2 · La Salle</td><td>Le coach direct et chaud</td><td><span class="pillbadge" style="background:#FBF0D8;color:#9A6B00;">Bon</span></td><td>Forte — lime signature reconnaissable</td><td>Faible-moyen (le lime survit)</td><td>Froideur « perf » si mal dosée</td></tr>
-    <tr><td>3 · Le Terrain</td><td>L'animateur fédérateur</td><td><span class="pillbadge" style="background:#DDF0E2;color:#247A43;">Excellent</span></td><td>Très forte — personne ne fait ça en fitness FR</td><td>Élevé (système neuf)</td><td>Lisibilité / sérieux à doser</td></tr>
-    <tr><td>4 · Jour &amp; Nuit</td><td>L'entraîneur calme</td><td><span class="pillbadge" style="background:#FBF0D8;color:#9A6B00;">Bon</span></td><td>Moyenne — proche des standards</td><td><b>Le plus faible</b> (évolution)</td><td>La moins « nouvelle génération »</td></tr>
-    <tr><td>5 · Le Compagnon</td><td>Gus, la mascotte qui croit en toi</td><td><span class="pillbadge" style="background:#DDF0E2;color:#247A43;">Excellent</span></td><td><b>Très forte</b> — guidage incarné + rétention</td><td>Élevé (mascotte, assets, ton)</td><td>Infantilisme si mal dosé</td></tr>
-  </table>
-  <p style="margin-top:20px; font-size:14.5px; color:#6b665e; line-height:1.55;">💡 <b>Hybridations naturelles :</b>
-  <b>2 + 5</b> (l'énergie de La Salle + Gus en coach discret) · <b>1 + 4</b> (la chaleur du Club + la séance nuit focus).
-  Le mode « séance sombre » de Jour &amp; Nuit est compatible avec les 4 autres identités.</p>
-</section>
+  <div class="sep"></div>
+  <footer>
+    Hybridations naturelles : <b>La Salle + Le Compagnon</b> (énergie + Gus discret) · <b>Le Club + Jour &amp; Nuit</b> (chaleur + séance nuit).<br>
+    Prochaine étape : choisir l'identité → réécrire DESIGN.md → refonte écran par écran (la logique et les API ne bougent pas).
+  </footer>
 
-<!-- ===== 11 · NEXT STEPS ===== -->
-<section class="slide dark">
-  <div style="flex:1; display:flex; flex-direction:column; justify-content:center;">
-    <div class="kicker">Et maintenant</div>
-    <h2 style="font-size:46px;">On choisit, puis on construit</h2>
-    <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:16px; margin-top:22px; max-width:960px;">
-      <div class="pillar"><h3>1 · Trancher l'identité</h3><p>Choisir une identité (ou une hybridation de deux) — aujourd'hui.</p></div>
-      <div class="pillar"><h3>2 · Réécrire DESIGN.md</h3><p>L'identité retenue devient la loi : tokens, typo, ton de voix, motion.</p></div>
-      <div class="pillar"><h3>3 · Refondre écran par écran</h3><p>La logique, les API et le flux guidé survivent intégralement — seule la peau change.</p></div>
-      <div class="pillar"><h3>4 · Pilotes terrain</h3><p>Lister 10 boxes/salles IDF à démarcher. L'app doit vivre là où on s'entraîne.</p></div>
-    </div>
-  </div>
-</section>
-
-<div class="progress" id="prog"></div>
-<div class="slide-num" id="snum"></div>
-<div class="nav-hint">← → pour naviguer</div>
-
-<script>
-  const slides = document.querySelectorAll('.slide');
-  let cur = 0;
-  function show(i) {
-    cur = Math.max(0, Math.min(slides.length - 1, i));
-    slides.forEach((s, j) => s.classList.toggle('active', j === cur));
-    document.getElementById('prog').style.width = ((cur + 1) / slides.length * 100) + '%';
-    document.getElementById('snum').textContent = (cur + 1) + ' / ' + slides.length;
-  }
-  document.addEventListener('keydown', e => {
-    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') show(cur + 1);
-    if (e.key === 'ArrowLeft' || e.key === 'PageUp') show(cur - 1);
-    if (e.key === 'Home') show(0);
-    if (e.key === 'End') show(slides.length - 1);
-  });
-  show(0);
-</script>
+</div>
 </body>
 </html>
