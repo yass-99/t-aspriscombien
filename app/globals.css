@@ -1,57 +1,64 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #000000;
-  --surface: #16181a;
-  --surface-2: #27272A;
-  --ink: #FAFAFA;
-  --ink-2: #E4E4E7;
-  --muted: #A1A1AA;
-  --subtle: #71717A;
-  --line: #27272A;
-  --line-2: #1F1F22;
-  --accent: #BEF264;
-  --accent-strong: #84CC16;
-  --accent-ink: #0A0A0B;
-  --accent-soft: color-mix(in oklch, var(--accent) 14%, var(--bg));
-  --accent-line: color-mix(in oklch, var(--accent) 38%, var(--bg));
-  --warn: #FBBF24;
-  --ok: #4ADE80;
-  --danger: #F87171;
+  --bg: #FDFEFB;
+  --surface: #FFFFFF;
+  --surface-2: #F2F7EC;
+  --ink: #35414B;
+  --ink-2: #52616D;
+  --muted: #8395A1;
+  --subtle: #ADBCC6;
+  --line: #E6EEF2;
+  --line-2: #D5E2E9;
+  --accent: #3D9414;
+  --accent-strong: #2E6D12;
+  --accent-ink: #FFFFFF;
+  --accent-soft: color-mix(in oklch, var(--accent) 12%, var(--bg));
+  --accent-line: color-mix(in oklch, var(--accent) 30%, var(--bg));
+  --warn: #E08200;
+  --warn-bright: #FFA216;
+  --ok: #16A34A;
+  --danger: #DC2626;
 
-  /* --- Design system Revolut-hybride (cf. DESIGN.md) ---------------------- */
-  /* Canvas full-dark : vrai noir pour le storytelling, surface luminée pour
-     les cartes. Échelle sombre à 2 marches. Introduits sans casser l'existant. */
-  --canvas: #000000;
-  --surface-deep: #0a0a0a;
-  --surface-elevated: #16181a;
+  /* --- DA « Le Compagnon » (cf. DESIGN.md + spec 2026-06-06) ------------- */
+  /* Canvas clair chaud-vert, cartes blanches bordées. Le verre dépoli et le
+     fond ambiant violet du prototype sont retirés. */
+  --canvas: #FDFEFB;
+  --surface-deep: #F7FAF2;
+  --surface-elevated: #FFFFFF;
 
-  /* Cobalt = couleur de MARQUE (CTA primaires, hero, accents UI). Le vert/ambre
-     restent pour la DATA (stats muscu/athlé). cf. DESIGN.md §1. */
-  --primary: #7C3AED;
-  --primary-bright: #A78BFA;
-  --primary-deep: #6D28D9;
+  /* Vert pré = couleur de MARQUE (CTA, chrome). #4FB81F est réservé aux
+     SURFACES ; tout TEXTE vert utilise --brand-bright #2E6D12 (WCAG 5,75:1)
+     ou --brand-deep #3D9414 minimum. cf. spec, acquis n°1. */
+  --primary: #4FB81F;
+  --primary-bright: #2E6D12;
+  --primary-deep: #3D9414;
   --on-primary: #ffffff;
-  /* Vrai violet (pas indigo bleuté) — couleur de marque. */
-  --brand: #7C3AED;
-  --brand-bright: #A78BFA;
-  --brand-deep: #6D28D9;
+  --brand: #4FB81F;
+  --brand-bright: #2E6D12;
+  --brand-deep: #3D9414;
   --brand-ink: #ffffff;
-  --brand-soft: color-mix(in oklch, var(--brand) 20%, black);
-  --brand-line: color-mix(in oklch, var(--brand) 46%, black);
+  --brand-soft: #EAF7E2;
+  --brand-line: color-mix(in oklch, var(--brand) 32%, white);
 
-  /* Glassmorphism (verre dépoli sombre sur le canvas noir). */
-  --glass: rgba(255, 255, 255, 0.045);
-  --glass-strong: rgba(255, 255, 255, 0.07);
-  --glass-border: rgba(255, 255, 255, 0.10);
-  --glass-highlight: rgba(255, 255, 255, 0.06);
+  /* Ciel = sélections interactives (RIR, amplitude, focus input, steppers). */
+  --ciel: #27A4E0;
+  --ciel-deep: #1E86B8;
+  --ciel-soft: #E4F4FC;
 
-  /* Lignes qui remplacent les ombres en zone sombre. */
-  --hairline: rgba(255, 255, 255, 0.12);
-  --hairline-strong: #27272A;
-  --on-dark-mute: rgba(255, 255, 255, 0.72);
+  /* Verre : sur canvas clair = voile blanc translucide. Usage restreint à la
+     barre CTA basse (overlay) — plus de glass sur les cartes. */
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-strong: rgba(255, 255, 255, 0.86);
+  --glass-border: rgba(53, 65, 75, 0.10);
+  --glass-highlight: rgba(255, 255, 255, 0.95);
 
-  /* Rayons (tout bouton => full ; toute carte => lg ; input => md). */
+  /* Hairlines sombres sur fond clair. */
+  --hairline: rgba(53, 65, 75, 0.12);
+  --hairline-strong: #D5E2E9;
+  --on-dark-mute: rgba(255, 255, 255, 0.85);
+
+  /* Rayons : carte 20 / bouton 18-12 (3D, plus de pilule CTA) / input 12. */
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 20px;
@@ -59,18 +66,17 @@
   --radius-full: 9999px;
 
   --radius: 14px;
-  --shadow-sm: 0 1px 2px rgba(
-    0,0,0,0.40);
-  --shadow-md: 0 4px 14px rgba(0,0,0,0.28);
-  --shadow-pop: 0 10px 30px -10px rgba(190,242,100,0.18), 0 8px 24px rgba(0,0,0,0.40);
-  --font: var(--font-inter), -apple-system, system-ui, sans-serif;
+  --shadow-sm: 0 1px 2px rgba(53, 65, 75, 0.10);
+  --shadow-md: 0 4px 14px rgba(53, 65, 75, 0.10);
+  --shadow-pop: 0 10px 30px -10px rgba(79, 184, 31, 0.25), 0 8px 24px rgba(53, 65, 75, 0.12);
+  --font: var(--font-nunito-sans), -apple-system, system-ui, sans-serif;
   --mono: var(--font-jetbrains-mono), ui-monospace, "SF Mono", Menlo, monospace;
-  --display: var(--font-space-grotesk), -apple-system, sans-serif;
+  --display: var(--font-baloo-2), -apple-system, sans-serif;
 
   /* CTA bas : ajustable selon le mode (site vs web app). */
   --cta-pad-bottom: 12px;
 
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 @media (display-mode: standalone) {
