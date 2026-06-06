@@ -45,7 +45,8 @@ export function Button({
     return () => cancelAnimationFrame(id)
   }, [gpu])
 
-  const scale = pressed ? 0.97 : 1
+  const scale = pressed ? 0.99 : 1
+  const lift = pressed ? 'translateY(3px)' : 'translateY(0)'
   const z = gpu && !gpuWarm ? 0.01 : 0
   const gpuStyle: CSSProperties = gpu
     ? {
@@ -63,38 +64,36 @@ export function Button({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    fontWeight: 600,
+    fontWeight: 700,
     letterSpacing: -0.1,
     transition: 'transform 120ms ease, background 120ms ease, box-shadow 160ms ease, color 120ms',
     width: full ? '100%' : 'auto',
-    transform: gpu ? `translateZ(${z}px) scale(${scale})` : `scale(${scale})`,
+    transform: gpu ? `translateZ(${z}px) ${lift} scale(${scale})` : `${lift} scale(${scale})`,
     opacity: disabled ? 0.45 : 1,
-    fontFamily: 'var(--font)',
+    fontFamily: 'var(--display)',
     ...gpuStyle,
   }
-  // Tout bouton est une pilule (cf. DESIGN.md : radius-full).
+  // Boutons Compagnon : rayons 18/16/12 (plus de pilule CTA), relief 3D sur le primaire.
   const sizes: Record<ButtonSize, CSSProperties> = {
-    lg: { height: 52, padding: '0 22px', borderRadius: 'var(--radius-full)', fontSize: 16 },
-    md: { height: 44, padding: '0 18px', borderRadius: 'var(--radius-full)', fontSize: 15 },
-    sm: { height: 34, padding: '0 14px', borderRadius: 'var(--radius-full)', fontSize: 13 },
+    lg: { height: 52, padding: '0 22px', borderRadius: 18, fontSize: 16 },
+    md: { height: 44, padding: '0 18px', borderRadius: 16, fontSize: 15 },
+    sm: { height: 34, padding: '0 14px', borderRadius: 12, fontSize: 13 },
   }
-  // Élévation = surface + hairline, pas d'ombre. Exception §5 : glow diffus sur le
-  // primaire (CTA le plus loud de l'écran).
+  // Relief 3D Compagnon : ombre dure dessous sur le primaire, qui se réduit au
+  // press pendant que le bouton descend (translateY). cf. DESIGN.md §5.
   const variants: Record<ButtonVariant, CSSProperties> = {
     primary: {
-      // Marque = violet (cf. DESIGN.md §1). Glow diffus toléré : CTA le plus loud.
+      // Marque = vert pré (cf. DESIGN.md §1). Ombre dure dessous : signature 3D.
       background: hover
-        ? 'color-mix(in oklch, var(--brand) 86%, white)'
+        ? 'color-mix(in oklch, var(--brand) 92%, white)'
         : 'var(--brand)',
       color: 'var(--brand-ink)',
-      boxShadow: hover
-        ? '0 12px 34px -10px color-mix(in oklch, var(--brand) 70%, transparent)'
-        : '0 8px 22px -10px color-mix(in oklch, var(--brand) 55%, transparent)',
+      boxShadow: pressed ? '0 2px 0 var(--brand-deep)' : '0 5px 0 var(--brand-deep)',
     },
     secondary: {
       background: hover ? 'var(--surface-2)' : 'var(--surface)',
       color: 'var(--ink)',
-      boxShadow: '0 0 0 1px var(--hairline) inset',
+      boxShadow: '0 0 0 2px var(--line) inset',
     },
     ghost: {
       background: hover ? 'var(--surface-2)' : 'transparent',
@@ -102,10 +101,10 @@ export function Button({
     },
     danger: {
       background: hover
-        ? 'color-mix(in oklch, var(--danger) 18%, var(--surface))'
+        ? 'color-mix(in oklch, var(--danger) 8%, var(--surface))'
         : 'var(--surface)',
       color: 'var(--danger)',
-      boxShadow: '0 0 0 1px color-mix(in oklch, var(--danger) 28%, var(--hairline)) inset',
+      boxShadow: '0 0 0 2px color-mix(in oklch, var(--danger) 30%, var(--line)) inset',
     },
   }
 
@@ -141,25 +140,19 @@ export function Card({
   children?: ReactNode
   style?: CSSProperties
   interactive?: boolean
-  // Verre dépoli sombre — translucide + backdrop-blur, highlight en haut.
+  // Conservé pour compat API — plus d'effet (cartes opaques Compagnon).
   glass?: boolean
   onClick?: () => void
 }) {
   const [hover, setHover] = useState(false)
-  // Plus de liseré teinté accent (« cheap ») : la profondeur vient du hairline
-  // neutre, qui s'éclaire légèrement au hover. cf. DESIGN.md §5.
-  const ring = hover && interactive ? 'var(--glass-border)' : 'var(--hairline)'
-  const glassStyle: CSSProperties = glass
-    ? {
-        background: hover && interactive ? 'var(--glass-strong)' : 'var(--glass)',
-        backdropFilter: 'blur(22px) saturate(1.5)',
-        WebkitBackdropFilter: 'blur(22px) saturate(1.5)',
-        boxShadow: `0 0 0 1px ${ring} inset, 0 1px 0 var(--glass-highlight) inset`,
-      }
-    : {
-        background: 'var(--surface-elevated)',
-        boxShadow: `0 0 0 1px ${ring} inset`,
-      }
+  // Compagnon : carte opaque blanche, bordure 2px. La prop `glass` est conservée
+  // pour compat API mais n'a plus d'effet (plus de verre sur les cartes).
+  void glass
+  const ring = hover && interactive ? 'var(--line-2)' : 'var(--line)'
+  const glassStyle: CSSProperties = {
+    background: 'var(--surface)',
+    boxShadow: `0 0 0 2px ${ring} inset`,
+  }
   return (
     <div
       onClick={onClick}
@@ -309,7 +302,7 @@ export function NumericInput({
           background: 'var(--surface-2)',
           borderRadius: 'var(--radius-md)',
           boxShadow: focus
-            ? '0 0 0 1.5px var(--brand) inset, 0 0 0 4px color-mix(in oklch, var(--brand) 22%, transparent)'
+            ? '0 0 0 1.5px var(--ciel) inset, 0 0 0 4px color-mix(in oklch, var(--ciel) 22%, transparent)'
             : '0 0 0 1px var(--hairline) inset',
           transition: 'box-shadow 160ms',
         }}
@@ -321,7 +314,7 @@ export function NumericInput({
             height: '100%',
             background: 'transparent',
             border: 'none',
-            color: 'var(--muted)',
+            color: 'var(--ciel)',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -388,7 +381,7 @@ export function NumericInput({
             height: '100%',
             background: 'transparent',
             border: 'none',
-            color: 'var(--muted)',
+            color: 'var(--ciel)',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
