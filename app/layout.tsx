@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { ClerkProvider } from '@clerk/nextjs'
-import { dark } from '@clerk/themes'
-import { Inter, Space_Grotesk, JetBrains_Mono } from 'next/font/google'
+import { Nunito_Sans, Baloo_2, JetBrains_Mono } from 'next/font/google'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import { Analytics } from '@vercel/analytics/next'
 
@@ -10,16 +9,16 @@ import { ToastProvider } from './_components/Toast'
 import { FloatingUserButton } from './_components/FloatingUserButton'
 import './globals.css'
 
-const inter = Inter({
-  variable: '--font-inter',
+const nunitoSans = Nunito_Sans({
+  variable: '--font-nunito-sans',
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+  weight: ['400', '600', '700', '800'],
 })
 
-const spaceGrotesk = Space_Grotesk({
-  variable: '--font-space-grotesk',
+const baloo2 = Baloo_2({
+  variable: '--font-baloo-2',
   subsets: ['latin'],
-  weight: ['500', '600', '700'],
+  weight: ['500', '600', '700', '800'],
 })
 
 const jetbrainsMono = JetBrains_Mono({
@@ -35,13 +34,13 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: "T'asPrisCombien",
-    statusBarStyle: 'black-translucent',
+    statusBarStyle: 'default',
   },
   formatDetection: { telephone: false },
 }
 
 export const viewport: Viewport = {
-  themeColor: '#000000',
+  themeColor: '#FDFEFB',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 5,
@@ -57,26 +56,25 @@ export default function RootLayout({
   return (
     <html
       lang="fr"
-      className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable}`}
+      className={`${nunitoSans.variable} ${baloo2.variable} ${jetbrainsMono.variable}`}
     >
       <body className="antialiased">
         <ServiceWorkerRegister />
         <ToastProvider>
         <ClerkProvider
           appearance={{
-            baseTheme: dark,
             variables: {
-              colorPrimary: '#BEF264',
-              colorBackground: '#09090B',
-              colorInputBackground: '#18181B',
-              colorText: '#FAFAFA',
-              colorTextSecondary: '#A1A1AA',
-              colorInputText: '#FAFAFA',
+              colorPrimary: '#4FB81F',
+              colorBackground: '#FDFEFB',
+              colorInputBackground: '#F2F7EC',
+              colorText: '#35414B',
+              colorTextSecondary: '#52616D',
+              colorInputText: '#35414B',
               borderRadius: '12px',
-              fontFamily: 'var(--font-inter)',
+              fontFamily: 'var(--font-nunito-sans)',
             },
             elements: {
-              card: { background: '#18181B', border: '1px solid #27272A' },
+              card: { background: '#FFFFFF', border: '2px solid #E6EEF2' },
             },
           }}
         >
