@@ -34,6 +34,7 @@ Mineur : `scale(0.99)` au press n'apporte rien par-dessus `translateY(3px)` — 
 - 18 occurrences `rgba(0,0,0,…)` (scrims de modales/sheets — 40-60 % noir reste valable sur clair, vérifier au cas par cas) : BodyHeatmap, OnboardingProfileModal, PlanWeekModal, primitives (ConfirmDialog), WeekReportSheet, WeightDetailModal, WeightModal, athletisme_detail, IdleScreen, LoggingScreen, SessionDetailScreen.
 - 8 occurrences `rgba(255,255,255,…)`/`#000` en dur : icons.tsx, ConfigScreen, ExerciseSelectScreen, IdleScreen.
 - `app/_components/Toast.tsx` et `FloatingUserButton.tsx` (hors périmètre fondations) à rethémer.
+- `StatsScreen.tsx:58-65` — palette `TYPE_COLOR` des types de split codée en dur : contient `#A78BFA` (**dernier violet survivant de l'app**), `#FBBF24` (ancien ambre), `#67E8F9`, `#F472B6` → re-mapper sur la palette Compagnon (revue finale).
 
 ## Divers
 

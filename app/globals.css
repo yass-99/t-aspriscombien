@@ -86,9 +86,9 @@
 }
 
 html {
-  /* Peint TOUT l'écran en sombre, safe-areas iOS comprises (sinon la zone du
-     home indicator en bas du PWA standalone reste noire « par défaut » et
-     tranche avec le fond ambiant). */
+  /* Peint TOUT l'écran dans la couleur du canvas, safe-areas iOS comprises
+     (sinon la zone du home indicator en bas du PWA standalone garde sa couleur
+     « par défaut » et tranche avec le fond ambiant). */
   background: var(--bg);
   min-height: 100%;
 }
@@ -103,7 +103,7 @@ html, body {
 }
 body {
   /* Remplit la hauteur dynamique du viewport (PWA standalone) et coupe le
-     rebond élastique qui révélerait un fond noir nu en haut/bas. */
+     rebond élastique qui révélerait un fond nu en haut/bas. */
   min-height: 100dvh;
   overscroll-behavior-y: none;
 }
