@@ -8,6 +8,7 @@ type RunRow = {
   distance_m: number
   duration_ms: number
   created_at: string
+  session_id: string | null
 }
 
 type PostBody = {
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
   const supabase = createSupabaseServer(token)
   let query = supabase
     .from('runs')
-    .select('id, date, distance_m, duration_ms, created_at')
+    .select('id, date, distance_m, duration_ms, created_at, session_id')
     .order('date', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(500)

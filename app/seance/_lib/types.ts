@@ -18,6 +18,9 @@ export type Run = {
   distance_m: number
   duration_ms: number
   created_at: string
+  // FK vers athletics_sessions. NULL pour les runs créés avant l'introduction
+  // des sessions persistées (regroupés alors par heuristique côté lecture).
+  session_id: string | null
 }
 
 export type NavContext = {

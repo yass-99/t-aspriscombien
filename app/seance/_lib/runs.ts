@@ -419,12 +419,13 @@ export function formatPct(pct: number | null): string {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Une « séance d'athlétisme » dérivée des runs : on regroupe par date locale,
- * puis on découpe sur les gaps > GROUP_GAP_MS (par défaut 90 min).
- * Pas de modèle DB dédié — on infère depuis `runs.created_at`.
+ * Une « séance d'athlétisme ».
+ *   - Runs persistés avec un `session_id` → regroupés par cet id (source de vérité).
+ *   - Runs sans `session_id` (legacy, avant l'introduction des sessions) → repliés
+ *     sur l'heuristique : même date locale + gaps < GROUP_GAP_MS (90 min).
  */
 export type DerivedAthleticsSession = {
-  // Identifiant stable basé sur le premier run.
+  // session_id réel quand il existe, sinon identifiant stable `as_<firstRunId>`.
   id: string
   date: string
   startedAt: string // ISO, premier created_at
@@ -434,39 +435,56 @@ export type DerivedAthleticsSession = {
 
 const GROUP_GAP_MS = 90 * 60 * 1000 // 1h30
 
+function buildSession(g: Run[]): DerivedAthleticsSession {
+  return {
+    id: g[0].session_id ?? `as_${g[0].id}`,
+    date: g[0].date,
+    startedAt: g[0].created_at,
+    endedAt: g[g.length - 1].created_at,
+    runs: g,
+  }
+}
+
 export function groupRunsIntoSessions(runs: Run[]): DerivedAthleticsSession[] {
   if (runs.length === 0) return []
 
   // Tri chrono ascendant pour grouper, puis on retournera dans l'ordre desc.
   const sorted = [...runs].sort((a, b) => a.created_at.localeCompare(b.created_at))
 
-  const groups: Run[][] = []
+  // 1) Runs avec session_id : regroupés par cet id, indépendamment du temps.
+  const bySession = new Map<string, Run[]>()
+  const orphans: Run[] = []
+  for (const r of sorted) {
+    if (r.session_id) {
+      const arr = bySession.get(r.session_id)
+      if (arr) arr.push(r)
+      else bySession.set(r.session_id, [r])
+    } else {
+      orphans.push(r)
+    }
+  }
+
+  const sessions: DerivedAthleticsSession[] = []
+  for (const g of bySession.values()) sessions.push(buildSession(g))
+
+  // 2) Runs orphelins (session_id NULL) : heuristique date + gap.
   let current: Run[] = []
   let currentDate: string | null = null
   let lastTs: number | null = null
-
-  for (const r of sorted) {
+  for (const r of orphans) {
     const ts = new Date(r.created_at).getTime()
     const sameDay = r.date === currentDate
     const closeEnough = lastTs != null && ts - lastTs <= GROUP_GAP_MS
     if (current.length === 0 || (sameDay && closeEnough)) {
       current.push(r)
     } else {
-      groups.push(current)
+      sessions.push(buildSession(current))
       current = [r]
     }
     currentDate = r.date
     lastTs = ts
   }
-  if (current.length > 0) groups.push(current)
-
-  const sessions: DerivedAthleticsSession[] = groups.map((g) => ({
-    id: `as_${g[0].id}`,
-    date: g[0].date,
-    startedAt: g[0].created_at,
-    endedAt: g[g.length - 1].created_at,
-    runs: g,
-  }))
+  if (current.length > 0) sessions.push(buildSession(current))
 
   // Retourner desc (plus récent en premier) pour coller au reste de l'app.
   sessions.sort((a, b) => b.startedAt.localeCompare(a.startedAt))

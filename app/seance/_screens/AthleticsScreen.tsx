@@ -33,7 +33,7 @@ const DEFAULT_DISTANCE = 100
 const SCREEN_H = 'calc(100dvh - env(safe-area-inset-top, 0px))'
 
 export function AthleticsScreen({ nav, initialDistance = null }: Props) {
-  const { runs, loading, error, create } = useRuns()
+  const { runs, loading, error, saveSession } = useRuns()
   const toast = useToast()
   const initializedRef = useRef(false)
   // Default immédiat à initialDistance ou 100m pour éviter un fallback pendant
@@ -79,26 +79,19 @@ export function AthleticsScreen({ nav, initialDistance = null }: Props) {
   const summaries = useMemo(() => summarizeByDistance(runs), [runs])
   const userDistances = useMemo(() => summaries.map((s) => s.distance_m), [summaries])
 
-  // Persiste tous les chronos en mémoire en DB de façon séquentielle, puis
-  // navigue vers le récap avec les IDs nouvellement créés. Si l'un échoue, on
-  // s'arrête : ce qui est déjà créé reste en DB, l'utilisateur peut retenter.
+  // Persiste toute la séance en un seul appel : le serveur crée la session athlé
+  // parente et rattache tous les chronos via session_id (atomique — soit tout
+  // passe, soit rien). Puis on navigue vers le récap avec les IDs renvoyés.
   const persistAndFinish = async (
     runsToSave: Array<{ distance_m: number; duration_ms: number }>,
   ) => {
     if (runsToSave.length === 0) return
     setBatchSaving(true)
-    const createdIds: string[] = []
     try {
-      for (const r of runsToSave) {
-        const created = await create(r)
-        createdIds.push(created.id)
-      }
-      nav('athletics_summary', { athleticsRunIds: createdIds })
+      const { runIds } = await saveSession(runsToSave)
+      nav('athletics_summary', { athleticsRunIds: runIds })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erreur enregistrement')
-      // Retire de la file les chronos déjà persistés pour éviter les doublons
-      // si l'utilisateur retente.
-      setPendingRuns((rs) => rs.slice(createdIds.length))
       setBatchSaving(false)
     }
   }
