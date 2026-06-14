@@ -30,8 +30,8 @@ export const invalidateRuns = () => resource.invalidate()
 
 /**
  * Charge les runs (optionnellement filtrés par distance) avec cache SWR partagé.
- * create/remove font la mutation puis invalident les runs + l'accueil (la semaine
- * inclut l'athlé).
+ * saveSession/remove font la mutation puis invalident les runs + l'accueil (la
+ * semaine inclut l'athlé).
  */
 export function useRuns(distance?: number) {
   const variant = distance ? String(distance) : ''
@@ -39,24 +39,29 @@ export function useRuns(distance?: number) {
 
   const refresh = useCallback(() => resource.invalidate(variant), [variant])
 
-  const create = useCallback(
-    async (payload: { distance_m: number; duration_ms: number; date?: string }): Promise<Run> => {
-      const res = await fetch('/api/runs', {
+  // Enregistre une séance athlé entière en un appel : crée la session parente
+  // côté serveur et rattache tous les chronos via session_id. Renvoie l'id de
+  // session + les ids des runs (dans l'ordre couru) pour naviguer vers le récap.
+  const saveSession = useCallback(
+    async (
+      runsToSave: Array<{ distance_m: number; duration_ms: number }>,
+    ): Promise<{ sessionId: string; runIds: string[] }> => {
+      const res = await fetch('/api/athletics/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Date LOCALE par défaut (l'athlé n'en fournit pas) : sans ça, le serveur
-        // retombe sur la date UTC et la séance peut tomber la veille/le lendemain.
-        body: JSON.stringify({ ...payload, date: payload.date ?? isoLocalDate() }),
+        // Date LOCALE : sans ça le serveur retombe sur l'UTC et la séance peut
+        // tomber la veille/le lendemain.
+        body: JSON.stringify({ runs: runsToSave, date: isoLocalDate() }),
       })
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
         throw new Error(e.error ?? `Erreur ${res.status}`)
       }
-      const data = (await res.json()) as { run: Run }
+      const payload = (await res.json()) as { sessionId: string; runIds: string[] }
       invalidateRuns()
       invalidateHomeDashboard()
       invalidateHeatmap()
-      return data.run
+      return payload
     },
     [],
   )
@@ -72,5 +77,5 @@ export function useRuns(distance?: number) {
     invalidateHeatmap()
   }, [])
 
-  return { runs: data ?? [], loading, error, refresh, create, remove }
+  return { runs: data ?? [], loading, error, refresh, saveSession, remove }
 }
